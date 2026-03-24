@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.local.piper-tts-server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON3__</string>
+        <string>-m</string>
+        <string>piper.http_server</string>
+        <string>-m</string>
+        <string>en_US-libritts_r-medium</string>
+        <string>--data-dir</string>
+        <string>__HOME__/.cursor/tts/models</string>
+        <string>--port</string>
+        <string>5111</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.cursor/tts/logs/piper-server.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.cursor/tts/logs/piper-server.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+</dict>
+</plist>
