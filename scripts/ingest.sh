@@ -14,6 +14,16 @@ mkdir -p "$QUEUE_DIR" "$(dirname "$LOG_FILE")"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ingest: $*" >> "$LOG_FILE"; }
 
+LISTENING_FLAG="$TTS_DIR/listening.enabled"
+if [ -f "$LISTENING_FLAG" ]; then
+    case "$(tr -d ' \n' < "$LISTENING_FLAG")" in
+        0|false|FALSE|off)
+            log "Listening paused — skipping queue"
+            exit 0
+            ;;
+    esac
+fi
+
 input=$(cat)
 
 text=$(echo "$input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('text',''))" 2>/dev/null) || {

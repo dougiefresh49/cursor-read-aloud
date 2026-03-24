@@ -10,6 +10,15 @@ QUEUE_DIR="$TTS_DIR/queue"
 CONFIG="$TTS_DIR/config.json"
 SCRIPTS_DIR="$TTS_DIR/scripts"
 PID_FILE="$TTS_DIR/.playback-pid"
+LISTENING_FLAG="$TTS_DIR/listening.enabled"
+
+# ── Listening on/off (default: on if flag missing) ────────────────
+LISTENING=1
+if [ -f "$LISTENING_FLAG" ]; then
+    case "$(tr -d ' \n' < "$LISTENING_FLAG")" in
+        0|false|FALSE|off) LISTENING=0 ;;
+    esac
+fi
 
 # ── Read config ───────────────────────────────────────────────────
 DEFAULT_SPEED="1.25"
@@ -33,7 +42,15 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # ── Title bar ─────────────────────────────────────────────────────
-if [ "$IS_PLAYING" = true ]; then
+if [ "$LISTENING" = 0 ]; then
+    if [ "$IS_PLAYING" = true ]; then
+        echo "⏸🔊"
+    elif [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then
+        echo "⏸ $QUEUE_COUNT"
+    else
+        echo "⏸"
+    fi
+elif [ "$IS_PLAYING" = true ]; then
     echo "🔊 ($QUEUE_COUNT)"
 elif [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then
     echo "🔈 $QUEUE_COUNT"
@@ -41,6 +58,14 @@ else
     echo "🔇"
 fi
 
+echo "---"
+
+# ── Start / Stop listening (ingest + Piper memory) ────────────────
+if [ "$LISTENING" = 0 ]; then
+    echo "▶ Start listening | bash=$SCRIPTS_DIR/set_listening.sh param1=on terminal=false refresh=true"
+else
+    echo "⏸ Stop listening | bash=$SCRIPTS_DIR/set_listening.sh param1=off terminal=false refresh=true"
+fi
 echo "---"
 
 # ── Now Playing / Stop ────────────────────────────────────────────
