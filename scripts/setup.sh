@@ -62,6 +62,7 @@ cp "$PROJECT_DIR/scripts/stop.sh"       "$TTS_DIR/scripts/stop.sh"
 cp "$PROJECT_DIR/scripts/set_speed.sh"   "$TTS_DIR/scripts/set_speed.sh"
 cp "$PROJECT_DIR/scripts/clear_queue.sh" "$TTS_DIR/scripts/clear_queue.sh"
 cp "$PROJECT_DIR/scripts/set_listening.sh" "$TTS_DIR/scripts/set_listening.sh"
+cp "$PROJECT_DIR/scripts/enqueue_manual.sh" "$TTS_DIR/scripts/enqueue_manual.sh"
 cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
 chmod +x "$TTS_DIR/scripts/"*.sh
 

@@ -16,8 +16,58 @@ def remove_fenced_code_blocks(text: str) -> str:
     return re.sub(r"```[\s\S]*?```", "", text)
 
 
+EXT_SPEECH = {
+    ".ts": " T S", ".tsx": " T S X", ".js": " J S", ".jsx": " J S X",
+    ".py": " python", ".json": " JSON", ".md": " markdown",
+    ".html": " H T M L", ".css": " C S S", ".sh": " shell",
+    ".sql": " S Q L", ".yml": " YAML", ".yaml": " YAML",
+    ".env": " env", ".txt": " text", ".csv": " C S V",
+    ".pdf": " P D F", ".png": " P N G", ".jpg": " J P G",
+    ".svg": " S V G", ".xml": " X M L", ".rs": " rust",
+    ".go": " go", ".rb": " ruby", ".onnx": " O N N X",
+}
+
+
+def _humanize_identifier(name: str, with_ext: bool = True) -> str:
+    """Turn a single identifier (filename, variable, class) into words."""
+    ext_spoken = ""
+    if with_ext:
+        for ext, speech in EXT_SPEECH.items():
+            if name.endswith(ext):
+                name = name[: -len(ext)]
+                ext_spoken = speech
+                break
+
+    # camelCase / PascalCase boundaries
+    name = re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
+    name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", name)
+    name = name.replace("-", " ").replace("_", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+    return name + ext_spoken
+
+
+def humanize_code_token(token: str) -> str:
+    """Convert a code token (path, function call, identifier) to speakable text."""
+    token = token.strip()
+    if not token:
+        return token
+
+    token = re.sub(r"\(\)$", "", token)
+
+    if "/" in token:
+        parts = [_humanize_identifier(p) for p in token.split("/") if p]
+        return " ".join(parts)
+
+    has_ext = any(token.endswith(ext) for ext in EXT_SPEECH)
+    if "." in token and not has_ext:
+        parts = [_humanize_identifier(p, with_ext=False) for p in token.split(".")]
+        return " ".join(parts)
+
+    return _humanize_identifier(token)
+
+
 def remove_inline_code(text: str) -> str:
-    return re.sub(r"`([^`\n]+)`", r"\1", text)
+    return re.sub(r"`([^`\n]+)`", lambda m: humanize_code_token(m.group(1)), text)
 
 
 def remove_markdown_images(text: str) -> str:
@@ -163,6 +213,20 @@ def remove_bold_italic_markers(text: str) -> str:
     return text
 
 
+def humanize_remaining_paths(text: str) -> str:
+    """Catch bare file paths and code identifiers that weren't inside backticks."""
+    ext_pattern = "|".join(re.escape(e) for e in EXT_SPEECH)
+    path_re = re.compile(
+        r"(?<!\w)(?:[a-zA-Z0-9_.@-]+/)+[a-zA-Z0-9_.-]+(?:" + ext_pattern + r")"
+    )
+    text = path_re.sub(lambda m: humanize_code_token(m.group(0)), text)
+
+    camel_re = re.compile(r"(?<!\w)[a-z]+(?:[A-Z][a-z]+){2,}(?:\(\))?(?!\w)")
+    text = camel_re.sub(lambda m: humanize_code_token(m.group(0)), text)
+
+    return text
+
+
 def collapse_whitespace(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
@@ -185,6 +249,7 @@ def clean(text: str) -> str:
     text = remove_code_like_lines(text)
     text = remove_bold_italic_markers(text)
     text = remove_bullet_markers(text)
+    text = humanize_remaining_paths(text)
     text = collapse_whitespace(text)
     return text
 

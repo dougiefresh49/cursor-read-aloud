@@ -56,12 +56,30 @@ Edit `~/.cursor/tts/config.json`:
 | Open Config | Edit config.json in default editor |
 | Open Logs | Browse log directory |
 
+## Manual Enqueue
+
+If listening was paused when a response came in, or you want to queue arbitrary text, use the `enqueue_manual.sh` script. It reads text from stdin and creates a queue entry that shows up in the SwiftBar menu like any hook-captured response.
+
+```bash
+# Queue whatever is on your clipboard (e.g. copy an assistant reply, then run this)
+pbpaste | ~/.cursor/tts/scripts/enqueue_manual.sh "My thread title"
+
+# Pipe from a file
+~/.cursor/tts/scripts/enqueue_manual.sh "Review notes" < ~/Desktop/missed-reply.md
+
+# Quick inline text
+echo "Remember to update the API keys" | ~/.cursor/tts/scripts/enqueue_manual.sh
+```
+
+The first argument is an optional title shown in the menu bar dropdown (defaults to "Manual enqueue"). The script writes a JSON file to `~/.cursor/tts/queue/` with the same structure the hook produces, so playback, text cleaning, and queue management all work identically.
+
 ## Text Cleaning
 
 Before synthesis, responses are cleaned to remove non-prose content:
 
 - Fenced code blocks (triple backticks)
-- Inline code spans
+- Inline code tokens humanized (e.g. `src/lib/document-prompts.ts` → "src lib document prompts T S")
+- camelCase, kebab-case, snake_case split into words; file extensions spoken naturally
 - Code-like lines (imports, shell commands, high symbol density)
 - Markdown images
 - Markdown tables are converted to prose
