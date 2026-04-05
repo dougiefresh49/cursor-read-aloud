@@ -46,35 +46,96 @@ short_conv=$(echo "$conversation_id" | cut -c1-12)
 filename="${epoch}-${short_conv}.json"
 filepath="$QUEUE_DIR/$filename"
 
-python3 -c "
-import json, sys, os, sqlite3, hashlib
+python3 - "$text" "$conversation_id" "$generation_id" "$model" "$epoch" "$filepath" "$workspace_roots" <<'PY'
+import json
+import os
+import sqlite3
+import sys
 
-text = sys.argv[1]
-conversation_id = sys.argv[2]
-generation_id = sys.argv[3]
-model = sys.argv[4]
-epoch = sys.argv[5]
-filepath = sys.argv[6]
-workspace_root = sys.argv[7]
+text, conversation_id, generation_id, model, epoch, filepath, workspace_root = (
+    sys.argv[1],
+    sys.argv[2],
+    sys.argv[3],
+    sys.argv[4],
+    sys.argv[5],
+    sys.argv[6],
+    sys.argv[7],
+)
 
-thread_title = ''
+thread_title = ""
 
-# Look up thread title from Cursor's workspace state DB
-# Cursor stores composer data in workspaceStorage/<hash>/state.vscdb
-ws_storage = os.path.expanduser('~/Library/Application Support/Cursor/User/workspaceStorage')
+
+def _workspace_matches_header(header: dict, root: str) -> bool:
+    if not root:
+        return True
+    root = root.rstrip("/")
+    uri = (header.get("workspaceIdentifier") or {}).get("uri") or {}
+    fs_path = uri.get("fsPath") or ""
+    external = str(uri.get("external") or "")
+    return root in fs_path or root in external
+
+
+def _lookup_global_composer_headers(cid: str, root: str) -> str:
+    """Newer Cursor: titles live in globalStorage composer.composerHeaders (allComposers)."""
+    gdb = os.path.expanduser(
+        "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb"
+    )
+    if not os.path.isfile(gdb):
+        return ""
+    try:
+        conn = sqlite3.connect(gdb)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT value FROM ItemTable WHERE key = 'composer.composerHeaders'"
+        )
+        row = cur.fetchone()
+        conn.close()
+    except Exception:
+        return ""
+    if not row:
+        return ""
+    try:
+        payload = json.loads(row[0])
+    except Exception:
+        return ""
+    composers = payload.get("allComposers") or []
+    if not isinstance(composers, list):
+        return ""
+
+    def name_for_match(require_workspace: bool) -> str:
+        for c in composers:
+            if not isinstance(c, dict):
+                continue
+            if c.get("composerId") != cid:
+                continue
+            if require_workspace and not _workspace_matches_header(c, root):
+                continue
+            n = (c.get("name") or "").strip()
+            if n:
+                return n
+        return ""
+
+    # Prefer row tied to this workspace when hook sends workspace_roots
+    if root:
+        hit = name_for_match(require_workspace=True)
+        if hit:
+            return hit
+    return name_for_match(require_workspace=False)
+
+
+# 1) Legacy: full composer rows under workspace state.vscdb → composer.composerData
+ws_storage = os.path.expanduser("~/Library/Application Support/Cursor/User/workspaceStorage")
 if os.path.isdir(ws_storage):
     for ws_dir in os.listdir(ws_storage):
-        ws_json = os.path.join(ws_storage, ws_dir, 'workspace.json')
-        db_path = os.path.join(ws_storage, ws_dir, 'state.vscdb')
+        ws_json = os.path.join(ws_storage, ws_dir, "workspace.json")
+        db_path = os.path.join(ws_storage, ws_dir, "state.vscdb")
         if not os.path.isfile(ws_json) or not os.path.isfile(db_path):
             continue
 
-        # Match workspace by folder path
         try:
             with open(ws_json) as f:
                 ws_data = json.load(f)
-            ws_folder = ws_data.get('folder', '')
-            # workspace_root is a filesystem path, ws_folder is a file:// URI
+            ws_folder = ws_data.get("folder", "")
             if workspace_root and workspace_root not in ws_folder:
                 continue
         except Exception:
@@ -83,14 +144,16 @@ if os.path.isdir(ws_storage):
         try:
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
-            cur.execute(\"SELECT value FROM ItemTable WHERE key = 'composer.composerData'\")
+            cur.execute(
+                "SELECT value FROM ItemTable WHERE key = 'composer.composerData'"
+            )
             row = cur.fetchone()
             conn.close()
             if row:
                 composer_data = json.loads(row[0])
-                for c in composer_data.get('allComposers', []):
-                    if c.get('composerId') == conversation_id:
-                        thread_title = c.get('name', '')
+                for c in composer_data.get("allComposers") or []:
+                    if c.get("composerId") == conversation_id:
+                        thread_title = (c.get("name") or "").strip()
                         break
         except Exception:
             pass
@@ -98,22 +161,36 @@ if os.path.isdir(ws_storage):
         if thread_title:
             break
 
+# 2) Migrated Cursor: workspace composer.composerData keeps only selectedComposerIds;
+#    thread titles are in global composer.composerHeaders.
+if not thread_title:
+    thread_title = _lookup_global_composer_headers(conversation_id, workspace_root)
+
 if len(thread_title) > 40:
-    thread_title = thread_title[:37] + '...'
+    thread_title = thread_title[:37] + "..."
 
 data = {
-    'text': text,
-    'conversation_id': conversation_id,
-    'generation_id': generation_id,
-    'model': model,
-    'timestamp': epoch,
-    'thread_title': thread_title,
-    'spoken': False
+    "text": text,
+    "conversation_id": conversation_id,
+    "generation_id": generation_id,
+    "model": model,
+    "timestamp": epoch,
+    "thread_title": thread_title,
+    "spoken": False,
 }
-with open(filepath, 'w') as f:
+with open(filepath, "w") as f:
     json.dump(data, f, indent=2)
-" "$text" "$conversation_id" "$generation_id" "$model" "$epoch" "$filepath" "$workspace_roots"
+PY
 
-log "Queued response: $filename (conv=$short_conv, ${#text} chars)"
+tt_ok=false
+if python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if str(d.get('thread_title','')).strip() else 1)" "$filepath" 2>/dev/null; then
+    tt_ok=true
+fi
+
+if [ "$tt_ok" = true ]; then
+    log "Queued response: $filename (conv=$short_conv, ${#text} chars)"
+else
+    log "Queued response: $filename (conv=$short_conv, ${#text} chars) — thread title not resolved"
+fi
 
 exit 0
