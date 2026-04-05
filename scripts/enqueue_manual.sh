@@ -15,7 +15,7 @@ TITLE="${1:-Manual enqueue}"
 
 mkdir -p "$QUEUE_DIR"
 
-python3 -c "
+filepath=$(python3 -c "
 import json, os, sys, time
 
 title = sys.argv[1]
@@ -38,4 +38,6 @@ data = {
 with open(path, 'w') as f:
     json.dump(data, f, indent=2)
 print(path)
-" "$TITLE"
+" "$TITLE")
+
+"$TTS_DIR/scripts/notify_queued.sh" "$filepath" 2>/dev/null || true

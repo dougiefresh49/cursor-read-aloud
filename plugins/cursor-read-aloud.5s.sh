@@ -23,9 +23,11 @@ fi
 # ── Read config ───────────────────────────────────────────────────
 DEFAULT_SPEED="1.25"
 CURRENT_MODEL="en_US-libritts_r-medium"
+NOTIFICATIONS_ON=0
 if [ -f "$CONFIG" ]; then
     DEFAULT_SPEED=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('default_speed', 1.25))" 2>/dev/null || echo "1.25")
     CURRENT_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('model', 'en_US-libritts_r-medium'))" 2>/dev/null || echo "en_US-libritts_r-medium")
+    NOTIFICATIONS_ON=$(python3 -c "import json; print(1 if json.load(open('$CONFIG')).get('notifications_enabled') is True else 0)" 2>/dev/null || echo "0")
 fi
 
 # ── Count unplayed items ──────────────────────────────────────────
@@ -67,6 +69,11 @@ if [ "$LISTENING" = 0 ]; then
     echo "▶ Start listening | bash=$SCRIPTS_DIR/set_listening.sh param1=on terminal=false refresh=true"
 else
     echo "⏸ Stop listening | bash=$SCRIPTS_DIR/set_listening.sh param1=off terminal=false refresh=true"
+fi
+if [ "$NOTIFICATIONS_ON" = 1 ]; then
+    echo "Notifications: On | bash=$SCRIPTS_DIR/set_notifications.sh param1=off terminal=false refresh=true"
+else
+    echo "Notifications: Off | bash=$SCRIPTS_DIR/set_notifications.sh param1=on terminal=false refresh=true"
 fi
 echo "---"
 

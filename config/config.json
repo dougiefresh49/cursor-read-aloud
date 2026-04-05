@@ -2,5 +2,7 @@
   "piper_port": 5111,
   "speaker_id": 0,
   "default_speed": 1.25,
-  "model": "en_US-libritts_r-medium"
+  "model": "en_US-libritts_r-medium",
+  "notifications_enabled": false,
+  "notification_icon": ""
 }

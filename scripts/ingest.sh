@@ -193,4 +193,6 @@ else
     log "Queued response: $filename (conv=$short_conv, ${#text} chars) — thread title not resolved"
 fi
 
+"$TTS_DIR/scripts/notify_queued.sh" "$filepath" 2>/dev/null || true
+
 exit 0

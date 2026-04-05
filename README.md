@@ -37,7 +37,8 @@ Edit `~/.cursor/tts/config.json`:
   "piper_port": 5111,
   "speaker_id": 0,
   "default_speed": 1.25,
-  "model": "en_US-libritts_r-medium"
+  "model": "en_US-libritts_r-medium",
+  "notifications_enabled": false
 }
 ```
 
@@ -45,6 +46,8 @@ Edit `~/.cursor/tts/config.json`:
 - **model**: Piper voice id (no file extension), matching the base name of files in `models/`, e.g. `en_US-ryan-high`. Changing this from the **Voice** menu restarts Piper when the server is running.
 - **speaker_id**: Piper speaker index (0-903 for `en_US-libritts_r-medium`; use `0` for the single-speaker voices). Selecting a non-LibriTTS voice from the menu sets this to `0` automatically.
 - **piper_port**: Port for the local Piper HTTP server (used by the launch script and `play.sh`).
+- **notifications_enabled**: When `true`, each new queued reply triggers a macOS notification. With a rebuilt **terminal-notifier** in `/Applications/` (see below), **clicking** the notification runs `play.sh` for that item. Without it, a plain AppleScript notification appears (open the Read Aloud menu to play). Toggle from the menu bar without editing JSON.
+- **notification_icon**: Optional path to a PNG/JPEG image used as the notification icon (only with terminal-notifier). Example: `"~/.cursor/tts/icon.png"`. Leave `""` for the default app icon.
 
 ## Menu Bar Controls
 
@@ -52,6 +55,7 @@ Edit `~/.cursor/tts/config.json`:
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Click a queued response | Clean text and play via TTS                                                                                                       |
 | Stop Playback           | Kill active audio                                                                                                                 |
+| Notifications On/Off    | Enable or disable macOS notifications when a reply is queued (see **notifications_enabled**)                                      |
 | Speed submenu           | Change playback speed                                                                                                             |
 | Voice submenu           | Switch Piper model (requires the matching `.onnx` + `.onnx.json` in `~/.cursor/tts/models/`); restarts Piper when listening is on |
 | Clear Queue             | Mark all responses as played                                                                                                      |
@@ -120,3 +124,6 @@ Before synthesis, responses are cleaned to remove non-prose content:
 - **Piper not starting**: Check `~/.cursor/tts/logs/piper-server.log`. To run the same process as LaunchAgent: `~/.cursor/tts/scripts/piper_http_launch.sh`
 - **Hook not firing**: Verify `~/.cursor/hooks.json` exists and Cursor is restarted
 - **SwiftBar not showing**: Ensure SwiftBar is running and the plugin is in the correct plugins directory
+- **Notifications not appearing**: Confirm **Notifications: On** in the menu. Check `hook.log` for lines starting with `notify:` to see which delivery method ran and whether it succeeded.
+- **Notification flashes away too fast**: Open **System Settings → Notifications → terminal-notifier** (or **Script Editor** for osascript) and switch Alert Style to **Persistent**.
+- **terminal-notifier shows nothing (Sequoia / macOS 15+)**: The Homebrew version silently fails on newer macOS (exits 0, no banner). Build from source with a bumped deployment target — see [this GitHub issue](https://github.com/julienXX/terminal-notifier/issues/312). Quick steps: `cd /tmp && git clone https://github.com/julienXX/terminal-notifier.git && cd terminal-notifier`, then `sed -i '' 's/MACOSX_DEPLOYMENT_TARGET = 10.10/MACOSX_DEPLOYMENT_TARGET = 15.0/g' "Terminal Notifier.xcodeproj/project.pbxproj"`, `xcodebuild -project "Terminal Notifier.xcodeproj" -configuration Release -arch arm64`, and `cp -R build/Release/terminal-notifier.app /Applications/`. The script checks `/Applications/terminal-notifier.app` first, then `PATH`, then osascript.

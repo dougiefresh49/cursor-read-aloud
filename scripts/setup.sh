@@ -91,6 +91,8 @@ cp "$PROJECT_DIR/scripts/set_listening.sh" "$TTS_DIR/scripts/set_listening.sh"
 cp "$PROJECT_DIR/scripts/enqueue_manual.sh" "$TTS_DIR/scripts/enqueue_manual.sh"
 cp "$PROJECT_DIR/scripts/piper_http_launch.sh" "$TTS_DIR/scripts/piper_http_launch.sh"
 cp "$PROJECT_DIR/scripts/set_voice.sh" "$TTS_DIR/scripts/set_voice.sh"
+cp "$PROJECT_DIR/scripts/notify_queued.sh" "$TTS_DIR/scripts/notify_queued.sh"
+cp "$PROJECT_DIR/scripts/set_notifications.sh" "$TTS_DIR/scripts/set_notifications.sh"
 cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
 chmod +x "$TTS_DIR/scripts/"*.sh
 
@@ -102,6 +104,23 @@ else
     log "Writing default config to $CONFIG_FILE"
     cp "$PROJECT_DIR/config/config.json" "$CONFIG_FILE"
 fi
+
+python3 - <<'PY'
+import json
+import os
+
+p = os.path.join(os.path.expanduser("~"), ".cursor", "tts", "config.json")
+try:
+    with open(p, encoding="utf-8") as f:
+        c = json.load(f)
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+if "notifications_enabled" not in c:
+    c["notifications_enabled"] = False
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(c, f, indent=2)
+        f.write("\n")
+PY
 
 # ── 6. Install hooks.json ─────────────────────────────────────────
 HOOKS_FILE="$HOOKS_DIR/hooks.json"
@@ -176,3 +195,4 @@ log "  LaunchAgent: $PLIST_DEST"
 log "  Piper:       http://localhost:$VERIFY_PORT"
 log ""
 log "Try: echo 'Hello world' | python3 $TTS_DIR/scripts/clean_text.py"
+log "Optional: brew install terminal-notifier — click macOS notifications to play queued replies when notifications are enabled in the menu."
