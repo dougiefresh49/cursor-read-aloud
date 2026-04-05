@@ -4,5 +4,7 @@
   "default_speed": 1.25,
   "model": "en_US-libritts_r-medium",
   "notifications_enabled": false,
-  "notification_icon": ""
+  "notification_icon": "~/.cursor/tts/icons/tmnt-notification-queued.png",
+  "notification_sender": "",
+  "terminal_notifier_app": ""
 }

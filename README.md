@@ -1,11 +1,11 @@
-# Cursor Read Aloud
+# <img src="icons/tmnt-notification-queued.png" alt="Read aloud" width="40" /> Cursor Read Aloud
 
 A local tool that reads Cursor AI agent responses aloud via a macOS menu bar dropdown. Uses [Piper TTS](https://github.com/OHF-Voice/piper1-gpl) with the `en_US-libritts_r-medium` voice model for fast, offline speech synthesis.
 
 ## How It Works
 
 1. A Cursor `afterAgentResponse` hook captures each assistant reply and queues it as a JSON file
-2. A SwiftBar menu bar plugin lists queued responses **by agent thread** (with play/pause, start over, and section labels)
+2. A SwiftBar menu bar plugin lists queued responses **by agent thread** (with play/pause, start over, and section labels). **Setup** copies TMNT icons into `~/.cursor/tts/icons/`; the menu bar shows a calm turtle when the queue is empty and a “queued” turtle when there are waiting messages. **Notifications** (terminal-notifier) default to the queued TMNT art as the **content image** (large attachment on the right).
 3. Open a thread submenu and pick a message to clean the text (strip code blocks, tables-to-prose, etc.) and play it via Piper TTS
 4. Falls back to macOS `say` if Piper is unavailable
 
@@ -38,7 +38,10 @@ Edit `~/.cursor/tts/config.json`:
   "speaker_id": 0,
   "default_speed": 1.25,
   "model": "en_US-libritts_r-medium",
-  "notifications_enabled": false
+  "notifications_enabled": false,
+  "notification_icon": "~/.cursor/tts/icons/tmnt-notification-queued.png",
+  "notification_sender": "",
+  "terminal_notifier_app": ""
 }
 ```
 
@@ -46,8 +49,27 @@ Edit `~/.cursor/tts/config.json`:
 - **model**: Piper voice id (no file extension), matching the base name of files in `models/`, e.g. `en_US-ryan-high`. Changing this from the **Voice** menu restarts Piper when the server is running.
 - **speaker_id**: Piper speaker index (0-903 for `en_US-libritts_r-medium`; use `0` for the single-speaker voices). Selecting a non-LibriTTS voice from the menu sets this to `0` automatically.
 - **piper_port**: Port for the local Piper HTTP server (used by the launch script and `play.sh`).
-- **notifications_enabled**: When `true`, each new queued reply triggers a macOS notification. With a rebuilt **terminal-notifier** in `/Applications/` (see below), **clicking** the notification runs `play.sh` for that item. Without it, a plain AppleScript notification appears (open the Read Aloud menu to play). Toggle from the menu bar without editing JSON.
-- **notification_icon**: Optional path to a PNG/JPEG image used as the notification icon (only with terminal-notifier). Example: `"~/.cursor/tts/icon.png"`. Leave `""` for the default app icon.
+- **notifications_enabled**: When `true`, each new queued reply triggers a macOS notification. With **terminal-notifier** installed (stock or custom app below), **clicking** the notification runs `play.sh` for that item. Without it, a plain AppleScript notification appears (open the Read Aloud menu to play). Toggle from the menu bar without editing JSON.
+- **notification_icon**: Path to a PNG/JPEG passed to terminal-notifier’s **`-contentImage`** (expanded `~`). That flag still works on modern macOS; **`-appIcon`** does not (broken since Big Sur). Default is `~/.cursor/tts/icons/tmnt-notification-queued.png`. Set `""` for no custom image.
+- **notification_sender**: Optional bundle ID of another **installed** app. When set, **`-sender`** forces the **left** banner icon to that app’s icon. Leave **`""`** if you use a **custom notifier `.app`** (below)—otherwise **`-sender`** overrides your custom app’s icon.
+- **terminal_notifier_app**: Optional path to the **custom** `.app` from **`build_read_aloud_notifier_app.sh`**. When **non-empty**, that bundle is used first. When **empty**, `notify_queued.sh` still tries **`~/Applications/CursorReadAloudNotifier.app`** automatically (the build script’s default output). If that folder is missing, it falls back to stock **`/Applications/terminal-notifier.app`** — which shows the **Terminal** icon on the left. **`hook.log`** lines **`notifier binary: …`** show which binary ran.
+
+### Notification icons (why two icons?)
+
+| Place | What it is | How to control |
+| ----- | ---------- | -------------- |
+| **Left** (small) | The **sending app’s** icon (always shown) | Use **`terminal_notifier_app`** for your own TMNT (or leave unset for stock terminal-notifier). Optionally **`notification_sender`** to impersonate another installed app. **Cannot be removed.** |
+| **Right** (large) | **Content image** from **`notification_icon`** | Your TMNT “queued” PNG (or any path you set). |
+
+### Custom notifier app (your icon on the left)
+
+1. Install a working **terminal-notifier** (e.g. `brew install --cask terminal-notifier`, or build a newer `.app` for macOS 15+ per **Troubleshooting**).
+2. From the repo: **`bash scripts/build_read_aloud_notifier_app.sh`**  
+   - Copies `terminal-notifier.app` to **`~/Applications/CursorReadAloudNotifier.app`** (override: `bash scripts/build_read_aloud_notifier_app.sh /path/to/terminal-notifier.app "$HOME/Applications/Out.app" icons/tmnt-icon.png`).  
+   - Uses **`icons/tmnt-icon.png`** for the **app** icon (good for the small left glyph); pass a different PNG as the 3rd argument if you prefer.
+3. Add to **`~/.cursor/tts/config.json`**: `"terminal_notifier_app": "/Users/YOU/Applications/CursorReadAloudNotifier.app"` (use your real path).
+4. First launch: if macOS blocks it, **right‑click → Open** once, or `xattr -cr ~/Applications/CursorReadAloudNotifier.app`.
+5. Re-run **`bash scripts/setup.sh`** so **`notify_queued.sh`** is current, or copy **`scripts/notify_queued.sh`** to **`~/.cursor/tts/scripts/`**. Keep **`notification_sender`** empty.
 
 ## Menu Bar Controls
 

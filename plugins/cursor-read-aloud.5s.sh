@@ -52,8 +52,51 @@ if [ -f "$PAUSED_FLAG" ]; then
     IS_PAUSED=true
 fi
 
+# ── Menu bar image (SwiftBar: image= base64) ──────────────────────
+ICON_DIR="$TTS_DIR/icons"
+ICON_IDLE_MENU="$ICON_DIR/tmnt-menubar-idle.png"
+ICON_QUEUE_MENU="$ICON_DIR/tmnt-menubar-queued.png"
+ICON_IDLE_FALLBACK="$ICON_DIR/tmnt-icon.png"
+ICON_QUEUE_FALLBACK="$ICON_DIR/tmnt-notification-queued.png"
+CACHE_DIR="$TTS_DIR/cache"
+
+swiftbar_image_b64() {
+    local src="$1"
+    local name cfile
+    name=$(basename "$src")
+    cfile="$CACHE_DIR/swiftbar-${name}.b64"
+    [ -f "$src" ] || return 1
+    mkdir -p "$CACHE_DIR" 2>/dev/null || true
+    if [ ! -f "$cfile" ] || [ "$src" -nt "$cfile" ]; then
+        base64 <"$src" | tr -d '\n' >"$cfile"
+    fi
+    cat "$cfile"
+}
+
+BAR_SRC=""
+if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then
+    BAR_SRC="$ICON_QUEUE_MENU"
+    [ -f "$BAR_SRC" ] || BAR_SRC="$ICON_QUEUE_FALLBACK"
+else
+    BAR_SRC="$ICON_IDLE_MENU"
+    [ -f "$BAR_SRC" ] || BAR_SRC="$ICON_IDLE_FALLBACK"
+fi
+
+BAR_B64=""
+if [ -n "$BAR_SRC" ] && [ -f "$BAR_SRC" ]; then
+    BAR_B64=$(swiftbar_image_b64 "$BAR_SRC") || BAR_B64=""
+fi
+
 # ── Title bar ─────────────────────────────────────────────────────
-if [ "$LISTENING" = 0 ]; then
+# SwiftBar often does not show badge= when the header is image-only; put the count in
+# the title so it renders beside the icon (same as the old emoji + number layout).
+if [ -n "$BAR_B64" ]; then
+    if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then
+        echo "${QUEUE_COUNT} | image=${BAR_B64} dropdown=false"
+    else
+        echo " | image=${BAR_B64} dropdown=false"
+    fi
+elif [ "$LISTENING" = 0 ]; then
     if [ "$IS_PLAYING" = true ]; then
         echo "⏸🔊"
     elif [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then

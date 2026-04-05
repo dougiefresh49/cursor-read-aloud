@@ -14,7 +14,28 @@ err() { echo "[setup] ERROR: $*" >&2; }
 
 # ── 1. Create directory structure ──────────────────────────────────
 log "Creating directory structure under $TTS_DIR"
-mkdir -p "$TTS_DIR"/{models,queue,played,cache,scripts,logs}
+mkdir -p "$TTS_DIR"/{models,queue,played,cache,scripts,logs,icons}
+
+# ── 1b. Menu bar + notification icons ─────────────────────────────
+ICON_SRC_DIR="$PROJECT_DIR/icons"
+ICON_DST_DIR="$TTS_DIR/icons"
+if [ -d "$ICON_SRC_DIR" ] && [ -f "$ICON_SRC_DIR/tmnt-icon.png" ] && [ -f "$ICON_SRC_DIR/tmnt-notification-queued.png" ]; then
+    log "Installing icons to $ICON_DST_DIR"
+    cp -f "$ICON_SRC_DIR/tmnt-icon.png" "$ICON_DST_DIR/tmnt-icon.png"
+    cp -f "$ICON_SRC_DIR/tmnt-notification-queued.png" "$ICON_DST_DIR/tmnt-notification-queued.png"
+    # Downscale for SwiftBar (base64 header); keeps full-size copies for notifications
+    if command -v sips >/dev/null 2>&1; then
+        sips -Z 36 "$ICON_DST_DIR/tmnt-icon.png" --out "$ICON_DST_DIR/tmnt-menubar-idle.png" >/dev/null 2>&1 \
+            || cp -f "$ICON_DST_DIR/tmnt-icon.png" "$ICON_DST_DIR/tmnt-menubar-idle.png"
+        sips -Z 36 "$ICON_DST_DIR/tmnt-notification-queued.png" --out "$ICON_DST_DIR/tmnt-menubar-queued.png" >/dev/null 2>&1 \
+            || cp -f "$ICON_DST_DIR/tmnt-notification-queued.png" "$ICON_DST_DIR/tmnt-menubar-queued.png"
+    else
+        cp -f "$ICON_DST_DIR/tmnt-icon.png" "$ICON_DST_DIR/tmnt-menubar-idle.png"
+        cp -f "$ICON_DST_DIR/tmnt-notification-queued.png" "$ICON_DST_DIR/tmnt-menubar-queued.png"
+    fi
+else
+    log "Optional repo icons missing under $ICON_SRC_DIR (SwiftBar uses emoji fallback)"
+fi
 
 # ── 2. Install piper-tts ──────────────────────────────────────────
 if python3 -c "import piper" 2>/dev/null; then
@@ -98,6 +119,7 @@ cp "$PROJECT_DIR/scripts/set_voice.sh" "$TTS_DIR/scripts/set_voice.sh"
 cp "$PROJECT_DIR/scripts/notify_queued.sh" "$TTS_DIR/scripts/notify_queued.sh"
 cp "$PROJECT_DIR/scripts/set_notifications.sh" "$TTS_DIR/scripts/set_notifications.sh"
 cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
+cp "$PROJECT_DIR/scripts/build_read_aloud_notifier_app.sh" "$TTS_DIR/scripts/build_read_aloud_notifier_app.sh"
 chmod +x "$TTS_DIR/scripts/"*.sh
 
 # ── 5. Write default config (if not present) ──────────────────────
@@ -119,8 +141,21 @@ try:
         c = json.load(f)
 except (OSError, json.JSONDecodeError):
     raise SystemExit(0)
+
+changed = False
 if "notifications_enabled" not in c:
     c["notifications_enabled"] = False
+    changed = True
+if "notification_icon" not in c:
+    c["notification_icon"] = "~/.cursor/tts/icons/tmnt-notification-queued.png"
+    changed = True
+elif c.get("notification_icon") == "~/.cursor/tts/icons/tmnt-icon.png":
+    c["notification_icon"] = "~/.cursor/tts/icons/tmnt-notification-queued.png"
+    changed = True
+if "terminal_notifier_app" not in c:
+    c["terminal_notifier_app"] = ""
+    changed = True
+if changed:
     with open(p, "w", encoding="utf-8") as f:
         json.dump(c, f, indent=2)
         f.write("\n")

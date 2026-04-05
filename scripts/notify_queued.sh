@@ -2,8 +2,8 @@
 #
 # notify_queued.sh — macOS notification after a queue file is written (if enabled in config).
 #
-# Prefers a locally-built terminal-notifier at /Applications/terminal-notifier.app (click-to-play).
-# Falls back to osascript (banner + sound, no click action).
+# Prefers ~/.cursor/tts/config.json → terminal_notifier_app (custom .app with your icon),
+# then /Applications/terminal-notifier.app, then PATH. Falls back to osascript (no click action).
 #
 # Usage: notify_queued.sh /absolute/path/to/queue/file.json
 #
@@ -44,11 +44,13 @@ logn "preparing notification for $(basename "$filepath")"
 python3 - "$filepath" "$CONFIG" "$LOG_FILE" <<'PY'
 import json
 import os
+import plistlib
 import shlex
 import shutil
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 filepath, config_path, log_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
@@ -108,24 +110,82 @@ if len(tt) > 60:
     tt = tt[:57] + "..."
 
 
-# ── Notification icon (optional config key) ──────────────────────
-icon_path = config.get("notification_icon", "")
-icon_url = ""
-if icon_path:
-    expanded = os.path.expanduser(icon_path)
-    if os.path.isfile(expanded):
-        icon_url = "file://" + expanded
+# ── Notification image (optional config key) ─────────────────────
+# Big Sur+ broke terminal-notifier’s -appIcon (private API). Use -contentImage
+# so the TMNT/custom art still appears beside the message.
+icon_uri = ""
+icon_cfg = config.get("notification_icon", "")
+if icon_cfg:
+    ip = Path(os.path.expanduser(str(icon_cfg)))
+    if ip.is_file():
+        icon_uri = ip.resolve().as_uri()
+    elif icon_cfg.strip():
+        log(f"notification_icon not found, skipping image: {ip}")
 
 
-# ── Try terminal-notifier (rebuilt in /Applications) ─────────────
-TN_APP = "/Applications/terminal-notifier.app/Contents/MacOS/terminal-notifier"
-tn_bin = None
-if os.path.isfile(TN_APP) and os.access(TN_APP, os.X_OK):
-    tn_bin = TN_APP
-else:
-    found = shutil.which("terminal-notifier")
-    if found:
-        tn_bin = found
+# ── Resolve terminal-notifier binary ─────────────────────────────
+def exe_from_app_bundle(bundle: Path):
+    if not bundle.is_dir():
+        return None
+    plist_path = bundle / "Contents" / "Info.plist"
+    macos_bin = bundle / "Contents" / "MacOS"
+    if not plist_path.is_file():
+        return None
+    try:
+        with open(plist_path, "rb") as fp:
+            info = plistlib.load(fp)
+        exe_name = info.get("CFBundleExecutable", "terminal-notifier")
+    except Exception:
+        exe_name = "terminal-notifier"
+    candidate = macos_bin / exe_name
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
+
+
+def resolve_terminal_notifier(cfg: dict):
+    custom = (cfg.get("terminal_notifier_app") or "").strip()
+    bundles = []
+    if custom:
+        bundles.append(Path(os.path.expanduser(custom)))
+    # Same default path as build_read_aloud_notifier_app.sh — use custom app icon on the left
+    home_app = Path.home() / "Applications" / "CursorReadAloudNotifier.app"
+    try:
+        custom_res = Path(os.path.expanduser(custom)).resolve() if custom else None
+    except OSError:
+        custom_res = None
+    try:
+        home_res = home_app.resolve()
+    except OSError:
+        home_res = home_app
+    if custom_res != home_res:
+        bundles.append(home_app)
+
+    seen = set()
+    for bundle in bundles:
+        try:
+            key = bundle.resolve()
+        except OSError:
+            key = bundle
+        if key in seen:
+            continue
+        seen.add(key)
+        exe = exe_from_app_bundle(bundle)
+        if exe:
+            return exe
+
+    if custom:
+        log(f"terminal_notifier_app not usable (falling back to stock): {custom}")
+
+    stock = "/Applications/terminal-notifier.app/Contents/MacOS/terminal-notifier"
+    if os.path.isfile(stock) and os.access(stock, os.X_OK):
+        return stock
+    return shutil.which("terminal-notifier")
+
+
+tn_bin = resolve_terminal_notifier(config)
+if tn_bin:
+    log(f"notifier binary: {tn_bin}")
 
 if tn_bin:
     execute = shlex.quote(PLAY) + " " + shlex.quote(filepath)
@@ -141,8 +201,14 @@ if tn_bin:
         "-message", preview,
         "-execute", execute,
     ]
-    if icon_url:
-        cmd += ["-appIcon", icon_url]
+    if icon_uri:
+        cmd += ["-contentImage", icon_uri]
+
+    # Left “app” icon: always comes from the notification sender. macOS does not allow
+    # hiding it. Optional -sender uses another *installed* app’s bundle icon (see README).
+    sender = (config.get("notification_sender") or "").strip()
+    if sender:
+        cmd += ["-sender", sender]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode == 0:
