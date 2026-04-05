@@ -5,8 +5,8 @@ A local tool that reads Cursor AI agent responses aloud via a macOS menu bar dro
 ## How It Works
 
 1. A Cursor `afterAgentResponse` hook captures each assistant reply and queues it as a JSON file
-2. A SwiftBar menu bar plugin shows queued responses with estimated duration
-3. Click a response to clean the text (strip code blocks, tables-to-prose, etc.) and play it via Piper TTS
+2. A SwiftBar menu bar plugin lists queued responses **by agent thread** (with play/pause, start over, and section labels)
+3. Open a thread submenu and pick a message to clean the text (strip code blocks, tables-to-prose, etc.) and play it via Piper TTS
 4. Falls back to macOS `say` if Piper is unavailable
 
 ## Prerequisites

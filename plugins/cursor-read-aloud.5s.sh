@@ -11,6 +11,8 @@ CONFIG="$TTS_DIR/config.json"
 SCRIPTS_DIR="$TTS_DIR/scripts"
 PID_FILE="$TTS_DIR/.playback-pid"
 LISTENING_FLAG="$TTS_DIR/listening.enabled"
+PLAYBACK_FILE_REF="$TTS_DIR/.playback-file"
+PAUSED_FLAG="$TTS_DIR/.playback-paused"
 
 # ── Listening on/off (default: on if flag missing) ────────────────
 LISTENING=1
@@ -45,6 +47,11 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
+IS_PAUSED=false
+if [ -f "$PAUSED_FLAG" ]; then
+    IS_PAUSED=true
+fi
+
 # ── Title bar ─────────────────────────────────────────────────────
 if [ "$LISTENING" = 0 ]; then
     if [ "$IS_PLAYING" = true ]; then
@@ -64,81 +71,133 @@ fi
 
 echo "---"
 
-# ── Start / Stop listening (ingest + Piper memory) ────────────────
-if [ "$LISTENING" = 0 ]; then
-    echo "▶ Start listening | bash=$SCRIPTS_DIR/set_listening.sh param1=on terminal=false refresh=true"
-else
-    echo "⏸ Stop listening | bash=$SCRIPTS_DIR/set_listening.sh param1=off terminal=false refresh=true"
-fi
-if [ "$NOTIFICATIONS_ON" = 1 ]; then
-    echo "Notifications: On | bash=$SCRIPTS_DIR/set_notifications.sh param1=off terminal=false refresh=true"
-else
-    echo "Notifications: Off | bash=$SCRIPTS_DIR/set_notifications.sh param1=on terminal=false refresh=true"
-fi
-echo "---"
-
-# ── Now Playing / Stop ────────────────────────────────────────────
+# ── Now playing (media controls) ──────────────────────────────────
 if [ "$IS_PLAYING" = true ]; then
+    if [ "$IS_PAUSED" = true ]; then
+        echo "▶ Resume | bash=$SCRIPTS_DIR/pause.sh terminal=false refresh=true"
+    else
+        echo "⏯ Pause | bash=$SCRIPTS_DIR/pause.sh terminal=false refresh=true"
+    fi
+    echo "⏮ Start Over | bash=$SCRIPTS_DIR/restart.sh terminal=false refresh=true"
     echo "⏹ Stop Playback | bash=$SCRIPTS_DIR/stop.sh terminal=false refresh=true"
+    if [ -f "$PLAYBACK_FILE_REF" ]; then
+        NOW_LINE=$(python3 -c "
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path) as fh:
+        d = json.load(fh)
+    title = (d.get('thread_title') or '').strip()
+    if not title:
+        title = str(d.get('conversation_id', 'unknown'))[:12]
+    if len(title) > 28:
+        title = title[:26] + '...'
+    text = (d.get('text', '') or '')[:60].replace(chr(10), ' ').strip()
+    print(f'Now Playing: {title} — {text}...')
+except Exception:
+    print('Now Playing: …')
+" "$(tr -d '\n' < "$PLAYBACK_FILE_REF")" 2>/dev/null || echo "Now Playing: …")
+        echo "$NOW_LINE | disabled=true size=11"
+    fi
     echo "---"
 fi
 
-# ── Queue items ───────────────────────────────────────────────────
+# ── Agent Messages ──────────────────────────────────────────────
+echo "Agent Messages | disabled=true size=12"
+export QUEUE_DIR SCRIPTS_DIR
 if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null && [ "$QUEUE_COUNT" -ne 0 ]; then
-    # List up to 10 most recent queue items (newest first)
-    SHOWN=0
-    for f in $(ls -t "$QUEUE_DIR"/*.json 2>/dev/null); do
-        if [ "$SHOWN" -ge 10 ]; then
-            break
-        fi
+    python3 - <<'PY'
+import base64
+import json
+import os
+from collections import defaultdict
 
-        BASENAME=$(basename "$f")
+queue_dir = os.environ["QUEUE_DIR"]
+scripts_dir = os.environ["SCRIPTS_DIR"]
 
-        PREVIEW=$(python3 -c "
-import json, sys
-try:
-    with open(sys.argv[1]) as fh:
-        d = json.load(fh)
-    title = d.get('thread_title', '').strip()
+def load_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+def preview_for(path, data):
+    title = (data.get("thread_title") or "").strip()
     if not title:
-        title = d.get('conversation_id', 'unknown')[:8]
-    if len(title) > 20:
-        title = title[:18] + '...'
-    text = d.get('text', '')[:50].replace('\n', ' ').strip()
-    chars = len(d.get('text', ''))
+        cid = data.get("conversation_id") or "unknown"
+        title = str(cid)[:12]
+    if len(title) > 22:
+        title = title[:20] + "..."
+    text = (data.get("text") or "")[:50].replace("\n", " ").strip()
+    chars = len(data.get("text") or "")
     est = int(chars / 15)
-    mins = est // 60
-    secs = est % 60
-    dur = f'{mins}m{secs:02d}s' if mins > 0 else f'{secs}s'
-    print(f'[{title}] {text}... (~{dur})')
-except Exception:
-    print(sys.argv[1])
-" "$f" 2>/dev/null || echo "$BASENAME")
+    mins, secs = divmod(est, 60)
+    dur = f"{mins}m{secs:02d}s" if mins > 0 else f"{secs}s"
+    return f"[{title}] {text}... (~{dur})"
 
-        echo "$PREVIEW | bash=$SCRIPTS_DIR/play.sh param1=$f terminal=false refresh=true"
-        SHOWN=$((SHOWN + 1))
-    done
+paths = []
+try:
+    for name in os.listdir(queue_dir):
+        if name.endswith(".json"):
+            paths.append(os.path.join(queue_dir, name))
+except OSError:
+    paths = []
+
+# Newest file first (epoch prefix in filename)
+paths.sort(key=lambda p: os.path.basename(p), reverse=True)
+
+groups = defaultdict(list)
+for p in paths:
+    d = load_json(p)
+    if not d:
+        continue
+    cid = (d.get("conversation_id") or "").strip()
+    key = cid if cid else (d.get("thread_title") or "unknown")
+    groups[key].append((p, d))
+
+# Sort groups by newest message (max basename / path order)
+def group_sort_key(items):
+    return max((os.path.basename(i[0]) for i in items), default="")
+
+group_list = sorted(groups.items(), key=lambda kv: group_sort_key(kv[1]), reverse=True)
+
+for grp_key, items in group_list:
+    items.sort(key=lambda x: os.path.basename(x[0]), reverse=True)
+    first = items[0][1]
+    label = (first.get("thread_title") or "").strip()
+    if not label:
+        label = str(first.get("conversation_id") or "Chat")[:16]
+    if len(label) > 32:
+        label = label[:30] + "..."
+    n = len(items)
+    # Zero-padded width so counts read cleanly: (01) … (02) … (15) …
+    count_prefix = f"({n:02d}) "
+    print(f"{count_prefix}{label} | disabled=true")
+    for path, data in items:
+        prev = preview_for(path, data)
+        # SwiftBar: escape pipe in menu text? rare in previews
+        prev = prev.replace("|", "/")
+        print(
+            f"--{prev} | bash={scripts_dir}/play.sh param1={path} terminal=false refresh=true"
+        )
+    token = base64.urlsafe_b64encode(
+        json.dumps({"key": grp_key}, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    print("-- | disabled=true")
+    print(
+        f"--Clear Messages | bash={scripts_dir}/clear_thread_queue.sh param1={token} terminal=false refresh=true"
+    )
+PY
 else
-    echo "No queued responses"
+    echo "No queued responses | disabled=true"
 fi
 
 echo "---"
 
-# ── Speed submenu ─────────────────────────────────────────────────
-echo "Speed: ${DEFAULT_SPEED}x"
-SPEEDS=("0.75" "1.0" "1.25" "1.5" "2.0")
-for spd in "${SPEEDS[@]}"; do
-    if [ "$spd" = "$DEFAULT_SPEED" ]; then
-        LABEL="✓ ${spd}x"
-    else
-        LABEL="  ${spd}x"
-    fi
-    echo "--$LABEL | bash=$SCRIPTS_DIR/set_speed.sh param1=$spd terminal=false refresh=true"
-done
+# ── Settings (voice, speed, notifications) ────────────────────────
+echo "Settings | disabled=true size=12"
 
-echo "---"
-
-# ── Voice submenu ─────────────────────────────────────────────────
 VOICE_IDS=(
     en_US-libritts_r-medium
     en_US-norman-medium
@@ -175,14 +234,41 @@ while [ "$i" -lt "${#VOICE_IDS[@]}" ]; do
     i=$((i + 1))
 done
 
+echo "Speed: ${DEFAULT_SPEED}x"
+SPEEDS=("0.75" "1.0" "1.25" "1.5" "2.0")
+for spd in "${SPEEDS[@]}"; do
+    if [ "$spd" = "$DEFAULT_SPEED" ]; then
+        LABEL="✓ ${spd}x"
+    else
+        LABEL="  ${spd}x"
+    fi
+    echo "--$LABEL | bash=$SCRIPTS_DIR/set_speed.sh param1=$spd terminal=false refresh=true"
+done
+
+if [ "$NOTIFICATIONS_ON" = 1 ]; then
+    echo "Notifications: On | bash=$SCRIPTS_DIR/set_notifications.sh param1=off terminal=false refresh=true"
+else
+    echo "Notifications: Off | bash=$SCRIPTS_DIR/set_notifications.sh param1=on terminal=false refresh=true"
+fi
+
 echo "---"
 
-# ── Utility actions ───────────────────────────────────────────────
+# ── Debug / Logs ────────────────────────────────────────────────
+echo "Debug / Logs | disabled=true size=12"
+echo "Open Config | bash=/usr/bin/open param1=$CONFIG terminal=false"
+echo "Open Logs | bash=/usr/bin/open param1=$TTS_DIR/logs/ terminal=false"
+
+echo "---"
+
+echo "Refresh | refresh=true"
 if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null && [ "$QUEUE_COUNT" -ne 0 ]; then
     echo "Clear Queue | bash=$SCRIPTS_DIR/clear_queue.sh terminal=false refresh=true"
 fi
 
-echo "Open Config | bash=/usr/bin/open param1=$CONFIG terminal=false"
-echo "Open Logs | bash=/usr/bin/open param1=$TTS_DIR/logs/ terminal=false"
-echo "---"
-echo "Refresh | refresh=true"
+if [ "$LISTENING" = 0 ]; then
+    echo "▶ Start listening | bash=$SCRIPTS_DIR/set_listening.sh param1=on terminal=false refresh=true"
+else
+    echo "⏸ Stop listening | bash=$SCRIPTS_DIR/set_listening.sh param1=off terminal=false refresh=true"
+fi
+
+echo "Quit | bash=$SCRIPTS_DIR/quit.sh terminal=false refresh=true"

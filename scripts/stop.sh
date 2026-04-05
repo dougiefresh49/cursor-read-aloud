@@ -6,6 +6,9 @@ set -euo pipefail
 
 TTS_DIR="$HOME/.cursor/tts"
 PID_FILE="$TTS_DIR/.playback-pid"
+PLAYBACK_FILE_REF="$TTS_DIR/.playback-file"
+PAUSED_FLAG="$TTS_DIR/.playback-paused"
+AUDIO_REF="$TTS_DIR/.playback-audio"
 LOG_FILE="$TTS_DIR/logs/hook.log"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] stop: $*" >> "$LOG_FILE" 2>/dev/null; }
@@ -18,7 +21,7 @@ fi
 PID=$(cat "$PID_FILE" 2>/dev/null || true)
 
 if [ -z "$PID" ]; then
-    rm -f "$PID_FILE"
+    rm -f "$PID_FILE" "$PLAYBACK_FILE_REF" "$PAUSED_FLAG" "$AUDIO_REF"
     exit 0
 fi
 
@@ -29,4 +32,4 @@ else
     log "Process $PID already finished"
 fi
 
-rm -f "$PID_FILE"
+rm -f "$PID_FILE" "$PLAYBACK_FILE_REF" "$PAUSED_FLAG" "$AUDIO_REF"

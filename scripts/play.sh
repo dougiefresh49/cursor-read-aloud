@@ -11,6 +11,9 @@ TTS_DIR="$HOME/.cursor/tts"
 CONFIG="$TTS_DIR/config.json"
 SCRIPTS_DIR="$TTS_DIR/scripts"
 PID_FILE="$TTS_DIR/.playback-pid"
+PLAYBACK_FILE_REF="$TTS_DIR/.playback-file"
+PAUSED_FLAG="$TTS_DIR/.playback-paused"
+AUDIO_REF="$TTS_DIR/.playback-audio"
 PLAYED_DIR="$TTS_DIR/played"
 LOG_FILE="$TTS_DIR/logs/hook.log"
 WAV_FILE="/tmp/cursor-tts-current.wav"
@@ -40,6 +43,25 @@ if [ -f "$PID_FILE" ]; then
     fi
     rm -f "$PID_FILE"
 fi
+rm -f "$PAUSED_FLAG"
+
+finish_playback_if_owner() {
+    local play_pid="$1"
+    if [ ! -f "$PID_FILE" ]; then
+        log "Playback superseded (no pid file) — not moving queue file"
+        return 1
+    fi
+    local stored
+    stored=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ "$stored" != "$play_pid" ]; then
+        log "Playback superseded (pid $stored vs $play_pid) — not moving queue file"
+        return 1
+    fi
+    rm -f "$PID_FILE" "$PAUSED_FLAG" "$AUDIO_REF" "$PLAYBACK_FILE_REF"
+    mv "$QUEUE_FILE" "$PLAYED_DIR/"
+    log "Finished: $(basename "$QUEUE_FILE")"
+    return 0
+}
 
 # ── Extract text from queue file ──────────────────────────────────
 RAW_TEXT=$(python3 -c "
@@ -100,20 +122,25 @@ if [ "$HTTP_CODE" != "200" ]; then
     AIFF_FILE="/tmp/cursor-tts-current.aiff"
     say -o "$AIFF_FILE" "$CLEANED" 2>/dev/null || die "macOS say failed"
 
+    printf '%s' "$QUEUE_FILE" > "$PLAYBACK_FILE_REF"
+    printf '%s' "$AIFF_FILE" > "$AUDIO_REF"
     afplay "$AIFF_FILE" &
     PLAY_PID=$!
     echo "$PLAY_PID" > "$PID_FILE"
 
     log "Playing via macOS say (PID $PLAY_PID)"
     wait "$PLAY_PID" 2>/dev/null || true
-    rm -f "$PID_FILE"
-    mv "$QUEUE_FILE" "$PLAYED_DIR/"
+    if finish_playback_if_owner "$PLAY_PID"; then
+        exit 0
+    fi
     exit 0
 fi
 
 # ── Play via afplay ───────────────────────────────────────────────
 log "Playing via Piper (speaker=$SPEAKER_ID, speed=${DEFAULT_SPEED}x, length_scale=$LENGTH_SCALE)"
 
+printf '%s' "$QUEUE_FILE" > "$PLAYBACK_FILE_REF"
+printf '%s' "$WAV_FILE" > "$AUDIO_REF"
 afplay "$WAV_FILE" &
 PLAY_PID=$!
 echo "$PLAY_PID" > "$PID_FILE"
@@ -121,8 +148,4 @@ echo "$PLAY_PID" > "$PID_FILE"
 log "Playback started (PID $PLAY_PID, file=$(basename "$QUEUE_FILE"))"
 
 wait "$PLAY_PID" 2>/dev/null || true
-rm -f "$PID_FILE"
-
-# ── Move to played ────────────────────────────────────────────────
-mv "$QUEUE_FILE" "$PLAYED_DIR/"
-log "Finished: $(basename "$QUEUE_FILE")"
+finish_playback_if_owner "$PLAY_PID" || true
