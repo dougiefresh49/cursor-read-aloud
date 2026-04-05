@@ -24,9 +24,9 @@ bash scripts/setup.sh
 This will:
 
 - Install `piper-tts` via pip
-- Download the `en_US-libritts_r-medium` voice model (~79 MB)
+- Download the `en_US-libritts_r-medium` voice model (\~79 MB) plus optional English voices: Norman (medium), Northern English male (medium), and Ryan (high, ONNX \~121 MB)—skipped if the `.onnx` / `.onnx.json` pairs are already in `~/.cursor/tts/models/`
 - Create the directory structure under `~/.cursor/tts/`
-- Copy scripts, install the Cursor hook, start the Piper HTTP server, and install the SwiftBar plugin
+- Copy scripts, install the Cursor hook, install a LaunchAgent that starts Piper via `piper_http_launch.sh` (reads `model` and `piper_port` from config), and install the SwiftBar plugin
 
 ## Configuration
 
@@ -42,19 +42,21 @@ Edit `~/.cursor/tts/config.json`:
 ```
 
 - **default_speed**: Playback speed multiplier (0.75x to 2.0x). Also adjustable from the menu bar speed submenu.
-- **speaker_id**: Piper voice speaker (0-903 for libritts_r, 0 = best quality).
-- **piper_port**: Port for the local Piper HTTP server.
+- **model**: Piper voice id (no file extension), matching the base name of files in `models/`, e.g. `en_US-ryan-high`. Changing this from the **Voice** menu restarts Piper when the server is running.
+- **speaker_id**: Piper speaker index (0-903 for `en_US-libritts_r-medium`; use `0` for the single-speaker voices). Selecting a non-LibriTTS voice from the menu sets this to `0` automatically.
+- **piper_port**: Port for the local Piper HTTP server (used by the launch script and `play.sh`).
 
 ## Menu Bar Controls
 
-| Action | Description |
-|---|---|
-| Click a queued response | Clean text and play via TTS |
-| Stop Playback | Kill active audio |
-| Speed submenu | Change playback speed |
-| Clear Queue | Mark all responses as played |
-| Open Config | Edit config.json in default editor |
-| Open Logs | Browse log directory |
+| Action                  | Description                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Click a queued response | Clean text and play via TTS                                                                                                       |
+| Stop Playback           | Kill active audio                                                                                                                 |
+| Speed submenu           | Change playback speed                                                                                                             |
+| Voice submenu           | Switch Piper model (requires the matching `.onnx` + `.onnx.json` in `~/.cursor/tts/models/`); restarts Piper when listening is on |
+| Clear Queue             | Mark all responses as played                                                                                                      |
+| Open Config             | Edit config.json in default editor                                                                                                |
+| Open Logs               | Browse log directory                                                                                                              |
 
 ## Manual Enqueue
 
@@ -77,11 +79,11 @@ The first argument is an optional title shown in the menu bar dropdown (defaults
 
 Three optional Raycast scripts live in `scripts/raycast/` (same metadata style as other projects: `@raycast.schemaVersion`, title, packageName **Cursor Read Aloud**). Add the repo folder (or symlink these `.sh` files) under **Raycast → Extensions → Script Commands** so they appear in the Raycast root search.
 
-| Script | What it does |
-|--------|----------------|
-| `enqueue-read-aloud-clipboard.sh` | `pbpaste` → `enqueue_manual.sh` with optional thread title (silent HUD). |
-| `enqueue-read-aloud-file.sh` | First argument: file path; second: optional title. Reads the file into the queue. |
-| `enqueue-read-aloud-text.sh` | First argument: short inline text; second: optional title. |
+| Script                            | What it does                                                                      |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `enqueue-read-aloud-clipboard.sh` | `pbpaste` → `enqueue_manual.sh` with optional thread title (silent HUD).          |
+| `enqueue-read-aloud-file.sh`      | First argument: file path; second: optional title. Reads the file into the queue. |
+| `enqueue-read-aloud-text.sh`      | First argument: short inline text; second: optional title.                        |
 
 All three expect `~/.cursor/tts/scripts/enqueue_manual.sh` to exist (run `scripts/setup.sh` once).
 
@@ -115,6 +117,6 @@ Before synthesis, responses are cleaned to remove non-prose content:
 ## Troubleshooting
 
 - **No audio**: Check `~/.cursor/tts/logs/hook.log` and `piper-server.log`
-- **Piper not starting**: Run manually: `python3 -m piper.http_server -m en_US-libritts_r-medium --data-dir ~/.cursor/tts/models --port 5111`
+- **Piper not starting**: Check `~/.cursor/tts/logs/piper-server.log`. To run the same process as LaunchAgent: `~/.cursor/tts/scripts/piper_http_launch.sh`
 - **Hook not firing**: Verify `~/.cursor/hooks.json` exists and Cursor is restarted
 - **SwiftBar not showing**: Ensure SwiftBar is running and the plugin is in the correct plugins directory

@@ -7,15 +7,8 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>__PYTHON3__</string>
-        <string>-m</string>
-        <string>piper.http_server</string>
-        <string>-m</string>
-        <string>en_US-libritts_r-medium</string>
-        <string>--data-dir</string>
-        <string>__HOME__/.cursor/tts/models</string>
-        <string>--port</string>
-        <string>5111</string>
+        <string>/bin/bash</string>
+        <string>__HOME__/.cursor/tts/scripts/piper_http_launch.sh</string>
     </array>
 
     <key>RunAtLoad</key>

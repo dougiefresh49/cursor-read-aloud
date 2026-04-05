@@ -22,8 +22,10 @@ fi
 
 # ── Read config ───────────────────────────────────────────────────
 DEFAULT_SPEED="1.25"
+CURRENT_MODEL="en_US-libritts_r-medium"
 if [ -f "$CONFIG" ]; then
     DEFAULT_SPEED=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('default_speed', 1.25))" 2>/dev/null || echo "1.25")
+    CURRENT_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('model', 'en_US-libritts_r-medium'))" 2>/dev/null || echo "en_US-libritts_r-medium")
 fi
 
 # ── Count unplayed items ──────────────────────────────────────────
@@ -125,6 +127,45 @@ for spd in "${SPEEDS[@]}"; do
         LABEL="  ${spd}x"
     fi
     echo "--$LABEL | bash=$SCRIPTS_DIR/set_speed.sh param1=$spd terminal=false refresh=true"
+done
+
+echo "---"
+
+# ── Voice submenu ─────────────────────────────────────────────────
+VOICE_IDS=(
+    en_US-libritts_r-medium
+    en_US-norman-medium
+    en_GB-northern_english_male-medium
+    en_US-ryan-high
+)
+VOICE_NAMES=(
+    "LibriTTS R (US)"
+    "Norman (US)"
+    "Northern English (male)"
+    "Ryan (US, high)"
+)
+VOICE_DISPLAY="$CURRENT_MODEL"
+i=0
+while [ "$i" -lt "${#VOICE_IDS[@]}" ]; do
+    if [ "${VOICE_IDS[$i]}" = "$CURRENT_MODEL" ]; then
+        VOICE_DISPLAY="${VOICE_NAMES[$i]}"
+        break
+    fi
+    i=$((i + 1))
+done
+
+echo "Voice: ${VOICE_DISPLAY}"
+i=0
+while [ "$i" -lt "${#VOICE_IDS[@]}" ]; do
+    vid="${VOICE_IDS[$i]}"
+    vname="${VOICE_NAMES[$i]}"
+    if [ "$vid" = "$CURRENT_MODEL" ]; then
+        LABEL="✓ ${vname}"
+    else
+        LABEL="  ${vname}"
+    fi
+    echo "--${LABEL} | bash=$SCRIPTS_DIR/set_voice.sh param1=${vid} terminal=false refresh=true"
+    i=$((i + 1))
 done
 
 echo "---"

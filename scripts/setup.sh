@@ -54,6 +54,32 @@ else
     fi
 fi
 
+# ── 3b. Optional Piper voices (skip if already present) ──────────
+download_voice_pair() {
+    local vid="$1" base="$2"
+    local onnx="$TTS_DIR/models/${vid}.onnx"
+    local jsn="$TTS_DIR/models/${vid}.onnx.json"
+    if [ -f "$onnx" ] && [ -f "$jsn" ]; then
+        log "Voice $vid already downloaded"
+        return 0
+    fi
+    log "Downloading $vid..."
+    curl -L -f -o "$onnx" "${base}/${vid}.onnx" || {
+        err "Failed to download ${vid}.onnx"; return 1
+    }
+    curl -L -f -o "$jsn" "${base}/${vid}.onnx.json" || {
+        err "Failed to download ${vid}.onnx.json"; return 1
+    }
+    log "Downloaded $vid"
+}
+
+download_voice_pair "en_US-norman-medium" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/norman/medium" || true
+download_voice_pair "en_GB-northern_english_male-medium" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/northern_english_male/medium" || true
+download_voice_pair "en_US-ryan-high" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high" || true
+
 # ── 4. Copy scripts ───────────────────────────────────────────────
 log "Installing scripts to $TTS_DIR/scripts/"
 cp "$PROJECT_DIR/scripts/ingest.sh"     "$TTS_DIR/scripts/ingest.sh"
@@ -63,6 +89,8 @@ cp "$PROJECT_DIR/scripts/set_speed.sh"   "$TTS_DIR/scripts/set_speed.sh"
 cp "$PROJECT_DIR/scripts/clear_queue.sh" "$TTS_DIR/scripts/clear_queue.sh"
 cp "$PROJECT_DIR/scripts/set_listening.sh" "$TTS_DIR/scripts/set_listening.sh"
 cp "$PROJECT_DIR/scripts/enqueue_manual.sh" "$TTS_DIR/scripts/enqueue_manual.sh"
+cp "$PROJECT_DIR/scripts/piper_http_launch.sh" "$TTS_DIR/scripts/piper_http_launch.sh"
+cp "$PROJECT_DIR/scripts/set_voice.sh" "$TTS_DIR/scripts/set_voice.sh"
 cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
 chmod +x "$TTS_DIR/scripts/"*.sh
 
@@ -92,11 +120,10 @@ fi
 # ── 7. Install LaunchAgent ─────────────────────────────────────────
 PLIST_NAME="com.local.piper-tts-server.plist"
 PLIST_DEST="$LAUNCH_AGENTS_DIR/$PLIST_NAME"
-PYTHON3_PATH="$(which python3)"
 mkdir -p "$LAUNCH_AGENTS_DIR"
 
-log "Generating LaunchAgent plist (python3=$PYTHON3_PATH, home=$HOME)"
-sed -e "s|__HOME__|$HOME|g" -e "s|__PYTHON3__|$PYTHON3_PATH|g" \
+log "Generating LaunchAgent plist (home=$HOME)"
+sed -e "s|__HOME__|$HOME|g" \
     "$PROJECT_DIR/config/$PLIST_NAME.template" > "$PLIST_DEST"
 
 # Load/reload the agent
@@ -120,20 +147,24 @@ else
 fi
 
 # ── 9. Verify Piper HTTP server ───────────────────────────────────
-log "Waiting for Piper HTTP server to start..."
+VERIFY_PORT="$PIPER_PORT"
+if [ -f "$CONFIG_FILE" ]; then
+    VERIFY_PORT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('piper_port', $PIPER_PORT))" 2>/dev/null || echo "$PIPER_PORT")
+fi
+log "Waiting for Piper HTTP server on port $VERIFY_PORT..."
 MAX_WAIT=15
 WAITED=0
-while ! curl -s "localhost:$PIPER_PORT/voices" >/dev/null 2>&1; do
+while ! curl -s "localhost:$VERIFY_PORT/voices" >/dev/null 2>&1; do
     sleep 1
     WAITED=$((WAITED + 1))
     if [ "$WAITED" -ge "$MAX_WAIT" ]; then
         err "Piper HTTP server did not start within ${MAX_WAIT}s"
         err "Check logs at: $TTS_DIR/logs/piper-server.log"
-        err "Try running manually: python3 -m piper.http_server -m en_US-libritts_r-medium --data-dir $TTS_DIR/models --port $PIPER_PORT"
+        err "Try running manually: $TTS_DIR/scripts/piper_http_launch.sh"
         exit 1
     fi
 done
-log "Piper HTTP server is running on port $PIPER_PORT"
+log "Piper HTTP server is running on port $VERIFY_PORT"
 
 log ""
 log "Setup complete! Summary:"
@@ -142,6 +173,6 @@ log "  Scripts:     $TTS_DIR/scripts/"
 log "  Queue:       $TTS_DIR/queue/"
 log "  Hooks:       $HOOKS_FILE"
 log "  LaunchAgent: $PLIST_DEST"
-log "  Piper:       http://localhost:$PIPER_PORT"
+log "  Piper:       http://localhost:$VERIFY_PORT"
 log ""
 log "Try: echo 'Hello world' | python3 $TTS_DIR/scripts/clean_text.py"
