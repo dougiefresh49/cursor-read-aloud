@@ -6,5 +6,6 @@
   "notifications_enabled": false,
   "notification_icon": "~/.cursor/tts/icons/tmnt-notification-queued.png",
   "notification_sender": "",
-  "terminal_notifier_app": ""
+  "terminal_notifier_app": "",
+  "notification_sound": "default"
 }

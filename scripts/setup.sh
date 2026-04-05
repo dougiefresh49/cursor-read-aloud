@@ -118,6 +118,7 @@ cp "$PROJECT_DIR/scripts/piper_http_launch.sh" "$TTS_DIR/scripts/piper_http_laun
 cp "$PROJECT_DIR/scripts/set_voice.sh" "$TTS_DIR/scripts/set_voice.sh"
 cp "$PROJECT_DIR/scripts/notify_queued.sh" "$TTS_DIR/scripts/notify_queued.sh"
 cp "$PROJECT_DIR/scripts/set_notifications.sh" "$TTS_DIR/scripts/set_notifications.sh"
+cp "$PROJECT_DIR/scripts/set_notification_sound.sh" "$TTS_DIR/scripts/set_notification_sound.sh"
 cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
 cp "$PROJECT_DIR/scripts/build_read_aloud_notifier_app.sh" "$TTS_DIR/scripts/build_read_aloud_notifier_app.sh"
 chmod +x "$TTS_DIR/scripts/"*.sh
@@ -154,6 +155,9 @@ elif c.get("notification_icon") == "~/.cursor/tts/icons/tmnt-icon.png":
     changed = True
 if "terminal_notifier_app" not in c:
     c["terminal_notifier_app"] = ""
+    changed = True
+if "notification_sound" not in c:
+    c["notification_sound"] = "default"
     changed = True
 if changed:
     with open(p, "w", encoding="utf-8") as f:
@@ -202,6 +206,12 @@ else
     log "SwiftBar plugin directory not found at $SWIFTBAR_PLUGINS_DIR"
     log "Install SwiftBar (brew install --cask swiftbar) then re-run setup,"
     log "or manually copy plugins/cursor-read-aloud.5s.sh to your SwiftBar plugins folder."
+fi
+
+# ── 8b. Custom notification sounds in ~/Library/Sounds ─────────────
+USER_SOUNDS="$HOME/Library/Sounds"
+if [ -d "$USER_SOUNDS" ] && [ -n "$(find "$USER_SOUNDS" -maxdepth 1 -type f \( -iname '*.aiff' -o -iname '*.aif' -o -iname '*.wav' -o -iname '*.caf' -o -iname '*.m4a' \) -print -quit 2>/dev/null)" ]; then
+    log "Custom notification sounds found in $USER_SOUNDS — listed in SwiftBar → Notification sound after built-ins (past the --- row)."
 fi
 
 # ── 9. Verify Piper HTTP server ───────────────────────────────────

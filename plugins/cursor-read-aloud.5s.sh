@@ -26,10 +26,12 @@ fi
 DEFAULT_SPEED="1.25"
 CURRENT_MODEL="en_US-libritts_r-medium"
 NOTIFICATIONS_ON=0
+NOTIFICATION_SOUND="default"
 if [ -f "$CONFIG" ]; then
     DEFAULT_SPEED=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('default_speed', 1.25))" 2>/dev/null || echo "1.25")
     CURRENT_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('model', 'en_US-libritts_r-medium'))" 2>/dev/null || echo "en_US-libritts_r-medium")
     NOTIFICATIONS_ON=$(python3 -c "import json; print(1 if json.load(open('$CONFIG')).get('notifications_enabled') is True else 0)" 2>/dev/null || echo "0")
+    NOTIFICATION_SOUND=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('notification_sound', 'default'))" 2>/dev/null || echo "default")
 fi
 
 # ── Count unplayed items ──────────────────────────────────────────
@@ -293,6 +295,83 @@ if [ "$NOTIFICATIONS_ON" = 1 ]; then
 else
     echo "Notifications: Off | bash=$SCRIPTS_DIR/set_notifications.sh param1=on terminal=false refresh=true"
 fi
+
+echo "Notification sound: ${NOTIFICATION_SOUND}"
+export NOTIFICATION_SOUND_MENU_SCRIPTS="$SCRIPTS_DIR"
+export NOTIFICATION_SOUND_MENU_CURRENT="$NOTIFICATION_SOUND"
+python3 - <<'PY'
+"""One submenu: built-in alert names, optional '---' row, then ~/Library/Sounds (cheap: one readdir per refresh)."""
+import base64
+import os
+
+scripts = os.environ["NOTIFICATION_SOUND_MENU_SCRIPTS"]
+current = os.environ.get("NOTIFICATION_SOUND_MENU_CURRENT", "default").strip()
+
+builtins = [
+    ("default", "Default"),
+    ("Glass", "Glass"),
+    ("Ping", "Ping"),
+    ("Tink", "Tink"),
+    ("Pop", "Pop"),
+    ("Submarine", "Submarine"),
+    ("Purr", "Purr"),
+    ("Funk", "Funk"),
+    ("Hero", "Hero"),
+    ("Basso", "Basso"),
+    ("Blow", "Blow"),
+    ("Bottle", "Bottle"),
+    ("Frog", "Frog"),
+    ("Morse", "Morse"),
+    ("Sosumi", "Sosumi"),
+]
+
+def selected(sid: str) -> bool:
+    if sid == "default":
+        return current.lower() == "default"
+    return sid == current or sid.lower() == current.lower()
+
+
+def enc(s: str) -> str:
+    return "B64:" + base64.urlsafe_b64encode(s.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+builtins_lower = {sid.lower() for sid, _ in builtins}
+for sid, slab in builtins:
+    mark = "✓ " if selected(sid) else "  "
+    print(
+        f"--{mark}{slab} | bash={scripts}/set_notification_sound.sh param1={sid} terminal=false refresh=true"
+    )
+
+custom_dir = os.path.join(os.path.expanduser("~"), "Library", "Sounds")
+exts = {".aiff", ".aif", ".wav", ".caf", ".m4a"}
+items = []
+if os.path.isdir(custom_dir):
+    try:
+        for fn in sorted(os.listdir(custom_dir)):
+            path = os.path.join(custom_dir, fn)
+            if not os.path.isfile(path):
+                continue
+            stem, ext = os.path.splitext(fn)
+            if ext.lower() not in exts:
+                continue
+            if stem.lower() in builtins_lower:
+                continue
+            items.append(stem)
+    except OSError:
+        pass
+
+if items:
+    # Submenu row titled exactly "---" (leading "--" is SwiftBar submenu marker + "---")
+    print("----- | disabled=true size=11")
+    cur_lower = current.lower()
+    for stem in items:
+        is_cur = stem == current or stem.lower() == cur_lower
+        mark = "✓ " if is_cur else "  "
+        display = stem.replace("|", "—")
+        print(
+            f"--{mark}{display} | bash={scripts}/set_notification_sound.sh param1={enc(stem)} terminal=false refresh=true"
+        )
+PY
 
 echo "---"
 

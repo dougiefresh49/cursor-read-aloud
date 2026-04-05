@@ -122,6 +122,7 @@ if icon_cfg:
     elif icon_cfg.strip():
         log(f"notification_icon not found, skipping image: {ip}")
 
+notification_sound = (config.get("notification_sound") or "default").strip() or "default"
 
 # ── Resolve terminal-notifier binary ─────────────────────────────
 def exe_from_app_bundle(bundle: Path):
@@ -194,7 +195,7 @@ if tn_bin:
     cmd = [
         tn_bin,
         "-group", nid,
-        "-sound", "default",
+        "-sound", notification_sound,
         "-ignoreDnD",
         "-title", "Cursor Read Aloud",
         "-subtitle", tt,
@@ -225,11 +226,16 @@ if not tn_bin:
     def esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace('"', '\\"')
 
+    # AppleScript only accepts installed alert sound names, not "default"
+    osa_sound = notification_sound
+    if osa_sound.lower() == "default":
+        osa_sound = "Glass"
+
     script = (
         f'display notification "{esc(preview)}" '
         f'with title "Cursor Read Aloud" '
         f'subtitle "{esc(tt)}" '
-        f'sound name "Glass"'
+        f'sound name "{esc(osa_sound)}"'
     )
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     if r.returncode == 0:
