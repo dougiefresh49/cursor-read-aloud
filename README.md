@@ -73,6 +73,18 @@ echo "Remember to update the API keys" | ~/.cursor/tts/scripts/enqueue_manual.sh
 
 The first argument is an optional title shown in the menu bar dropdown (defaults to "Manual enqueue"). The script writes a JSON file to `~/.cursor/tts/queue/` with the same structure the hook produces, so playback, text cleaning, and queue management all work identically.
 
+### Raycast Script Commands
+
+Three optional Raycast scripts live in `scripts/raycast/` (same metadata style as other projects: `@raycast.schemaVersion`, title, packageName **Cursor Read Aloud**). Add the repo folder (or symlink these `.sh` files) under **Raycast → Extensions → Script Commands** so they appear in the Raycast root search.
+
+| Script | What it does |
+|--------|----------------|
+| `enqueue-read-aloud-clipboard.sh` | `pbpaste` → `enqueue_manual.sh` with optional thread title (silent HUD). |
+| `enqueue-read-aloud-file.sh` | First argument: file path; second: optional title. Reads the file into the queue. |
+| `enqueue-read-aloud-text.sh` | First argument: short inline text; second: optional title. |
+
+All three expect `~/.cursor/tts/scripts/enqueue_manual.sh` to exist (run `scripts/setup.sh` once).
+
 ## Text Cleaning
 
 Before synthesis, responses are cleaned to remove non-prose content:
