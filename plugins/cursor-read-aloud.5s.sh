@@ -384,7 +384,7 @@ echo "---"
 
 echo "Refresh | refresh=true"
 if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null && [ "$QUEUE_COUNT" -ne 0 ]; then
-    echo "Clear Queue | bash=$SCRIPTS_DIR/clear_queue.sh terminal=false refresh=true"
+    echo "Clear All Messages | bash=$SCRIPTS_DIR/clear_queue.sh terminal=false refresh=true"
 fi
 
 if [ "$LISTENING" = 0 ]; then

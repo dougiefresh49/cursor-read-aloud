@@ -58,16 +58,16 @@ Edit `~/.cursor/tts/config.json`:
 
 ### Notification icons (why two icons?)
 
-| Place | What it is | How to control |
-| ----- | ---------- | -------------- |
-| **Left** (small) | The **sending app’s** icon (always shown) | Use **`terminal_notifier_app`** for your own TMNT (or leave unset for stock terminal-notifier). Optionally **`notification_sender`** to impersonate another installed app. **Cannot be removed.** |
-| **Right** (large) | **Content image** from **`notification_icon`** | Your TMNT “queued” PNG (or any path you set). |
+| Place             | What it is                                     | How to control                                                                                                                                                                                    |
+| ----------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Left** (small)  | The **sending app’s** icon (always shown)      | Use **`terminal_notifier_app`** for your own TMNT (or leave unset for stock terminal-notifier). Optionally **`notification_sender`** to impersonate another installed app. **Cannot be removed.** |
+| **Right** (large) | **Content image** from **`notification_icon`** | Your TMNT “queued” PNG (or any path you set).                                                                                                                                                     |
 
 ### Custom notifier app (your icon on the left)
 
 1. Install a working **terminal-notifier** (e.g. `brew install --cask terminal-notifier`, or build a newer `.app` for macOS 15+ per **Troubleshooting**).
-2. From the repo: **`bash scripts/build_read_aloud_notifier_app.sh`**  
-   - Copies `terminal-notifier.app` to **`~/Applications/CursorReadAloudNotifier.app`** (override: `bash scripts/build_read_aloud_notifier_app.sh /path/to/terminal-notifier.app "$HOME/Applications/Out.app" icons/tmnt-icon.png`).  
+2. From the repo: **`bash scripts/build_read_aloud_notifier_app.sh`**
+   - Copies `terminal-notifier.app` to **`~/Applications/CursorReadAloudNotifier.app`** (override: `bash scripts/build_read_aloud_notifier_app.sh /path/to/terminal-notifier.app "$HOME/Applications/Out.app" icons/tmnt-icon.png`).
    - Uses **`icons/tmnt-icon.png`** for the **app** icon (good for the small left glyph); pass a different PNG as the 3rd argument if you prefer.
 3. Add to **`~/.cursor/tts/config.json`**: `"terminal_notifier_app": "/Users/YOU/Applications/CursorReadAloudNotifier.app"` (use your real path).
 4. First launch: if macOS blocks it, **right‑click → Open** once, or `xattr -cr ~/Applications/CursorReadAloudNotifier.app`.
@@ -80,10 +80,10 @@ Edit `~/.cursor/tts/config.json`:
 | Click a queued response | Clean text and play via TTS                                                                                                       |
 | Stop Playback           | Kill active audio                                                                                                                 |
 | Notifications On/Off    | Enable or disable macOS notifications when a reply is queued (see **notifications_enabled**)                                      |
-| Notification sound      | Submenu: built-ins, **`---`**, then **`~/Library/Sounds`** → **`notification_sound`**                                               |
+| Notification sound      | Submenu: built-ins, **`---`**, then **`~/Library/Sounds`** → **`notification_sound`**                                             |
 | Speed submenu           | Change playback speed                                                                                                             |
 | Voice submenu           | Switch Piper model (requires the matching `.onnx` + `.onnx.json` in `~/.cursor/tts/models/`); restarts Piper when listening is on |
-| Clear Queue             | Mark all responses as played                                                                                                      |
+| Clear All Messages      | Mark all responses as played                                                                                                      |
 | Open Config             | Edit config.json in default editor                                                                                                |
 | Open Logs               | Browse log directory                                                                                                              |
 
