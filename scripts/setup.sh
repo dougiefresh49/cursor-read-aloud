@@ -107,6 +107,8 @@ cp "$PROJECT_DIR/scripts/ingest.sh"     "$TTS_DIR/scripts/ingest.sh"
 cp "$PROJECT_DIR/scripts/play.sh"       "$TTS_DIR/scripts/play.sh"
 cp "$PROJECT_DIR/scripts/stop.sh"       "$TTS_DIR/scripts/stop.sh"
 cp "$PROJECT_DIR/scripts/pause.sh"      "$TTS_DIR/scripts/pause.sh"
+cp "$PROJECT_DIR/scripts/play_latest.sh" "$TTS_DIR/scripts/play_latest.sh"
+cp "$PROJECT_DIR/scripts/media_control.sh" "$TTS_DIR/scripts/media_control.sh"
 cp "$PROJECT_DIR/scripts/restart.sh"    "$TTS_DIR/scripts/restart.sh"
 cp "$PROJECT_DIR/scripts/quit.sh"       "$TTS_DIR/scripts/quit.sh"
 cp "$PROJECT_DIR/scripts/set_speed.sh"   "$TTS_DIR/scripts/set_speed.sh"
@@ -120,6 +122,7 @@ cp "$PROJECT_DIR/scripts/notify_queued.sh" "$TTS_DIR/scripts/notify_queued.sh"
 cp "$PROJECT_DIR/scripts/set_notifications.sh" "$TTS_DIR/scripts/set_notifications.sh"
 cp "$PROJECT_DIR/scripts/set_notification_sound.sh" "$TTS_DIR/scripts/set_notification_sound.sh"
 cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
+cp "$PROJECT_DIR/config/hammerspoon-tts.lua" "$TTS_DIR/scripts/hammerspoon-tts.lua"
 cp "$PROJECT_DIR/scripts/build_read_aloud_notifier_app.sh" "$TTS_DIR/scripts/build_read_aloud_notifier_app.sh"
 chmod +x "$TTS_DIR/scripts/"*.sh
 
@@ -208,6 +211,28 @@ else
     log "or manually copy plugins/cursor-read-aloud.5s.sh to your SwiftBar plugins folder."
 fi
 
+# ── 8a. Hammerspoon — media Play / ctrl+Play (optional) ────────────
+HS_DIR="$HOME/.hammerspoon"
+HS_INIT="$HS_DIR/init.lua"
+HS_MARK="cursor-read-aloud media key tap"
+if [ -d "$HS_DIR" ]; then
+    if [ -f "$HS_INIT" ] && grep -q "$HS_MARK" "$HS_INIT" 2>/dev/null; then
+        log "Hammerspoon init.lua already loads Cursor Read Aloud media keys"
+    else
+        log "Appending Cursor Read Aloud media-key loader to $HS_INIT"
+        {
+            echo ""
+            echo "-- $HS_MARK (added by cursor-read-aloud setup)"
+            echo 'pcall(function() dofile(os.getenv("HOME") .. "/.cursor/tts/scripts/hammerspoon-tts.lua") end)'
+        } >> "$HS_INIT"
+        log "Reload Hammerspoon (menu bar icon → Reload Config) if it is already running"
+    fi
+else
+    log "Optional media keys: brew install --cask hammerspoon"
+    log "  Open Hammerspoon once (grant Accessibility), then re-run setup to append init.lua."
+    log "  ctrl+Play → Play Latest; Play → pause/resume TTS or play latest if queue has items."
+fi
+
 # ── 8b. Custom notification sounds in ~/Library/Sounds ─────────────
 USER_SOUNDS="$HOME/Library/Sounds"
 if [ -d "$USER_SOUNDS" ] && [ -n "$(find "$USER_SOUNDS" -maxdepth 1 -type f \( -iname '*.aiff' -o -iname '*.aif' -o -iname '*.wav' -o -iname '*.caf' -o -iname '*.m4a' \) -print -quit 2>/dev/null)" ]; then
@@ -245,3 +270,5 @@ log "  Piper:       http://localhost:$VERIFY_PORT"
 log ""
 log "Try: echo 'Hello world' | python3 $TTS_DIR/scripts/clean_text.py"
 log "Optional: brew install terminal-notifier — click macOS notifications to play queued replies when notifications are enabled in the menu."
+log "Hotkeys: SwiftBar menu — Play Latest (ctrl+shift+p), Pause/Resume (ctrl+shift+space)."
+log "         With Hammerspoon: ctrl+Play → latest message; Play → TTS / queue (see setup log above)."

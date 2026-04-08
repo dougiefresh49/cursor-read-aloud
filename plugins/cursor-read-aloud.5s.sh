@@ -116,12 +116,17 @@ fi
 
 echo "---"
 
+# ── Play latest (SwiftBar: ctrl+shift+p; Hammerspoon: ctrl+Play) ─
+echo "Play Latest | bash=$SCRIPTS_DIR/play_latest.sh terminal=false refresh=true shortcut=ctrl+shift+p"
+
+echo "---"
+
 # ── Now playing (media controls) ──────────────────────────────────
 if [ "$IS_PLAYING" = true ]; then
     if [ "$IS_PAUSED" = true ]; then
-        echo "▶ Resume | bash=$SCRIPTS_DIR/pause.sh terminal=false refresh=true"
+        echo "▶ Resume | bash=$SCRIPTS_DIR/pause.sh terminal=false refresh=true shortcut=ctrl+shift+space"
     else
-        echo "⏯ Pause | bash=$SCRIPTS_DIR/pause.sh terminal=false refresh=true"
+        echo "⏯ Pause | bash=$SCRIPTS_DIR/pause.sh terminal=false refresh=true shortcut=ctrl+shift+space"
     fi
     echo "⏮ Start Over | bash=$SCRIPTS_DIR/restart.sh terminal=false refresh=true"
     echo "⏹ Stop Playback | bash=$SCRIPTS_DIR/stop.sh terminal=false refresh=true"

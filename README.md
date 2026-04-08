@@ -87,6 +87,19 @@ Edit `~/.cursor/tts/config.json`:
 | Open Config             | Edit config.json in default editor                                                                                                |
 | Open Logs               | Browse log directory                                                                                                              |
 
+### Hotkeys (SwiftBar + optional Hammerspoon)
+
+| Shortcut           | Action |
+| ------------------ | ------ |
+| **ctrl+shift+p**   | **Play Latest** — newest queued message (SwiftBar global shortcut; also in the menu) |
+| **ctrl+shift+space** | **Pause / Resume** during playback (when the Pause/Resume row is shown) |
+| **ctrl+Play** (dedicated Play/Pause key) | **Play Latest** — [Hammerspoon](https://www.hammerspoon.org/) + Accessibility; if the dedicated key never fires in HS, use **ctrl+F8** (same row as Play on many Macs) |
+| **Play** (alone)   | If TTS is playing or the queue has items: same as menu Pause/Resume / play latest; otherwise the key passes through to Music / Spotify |
+
+Hammerspoon loads **`~/.cursor/tts/scripts/hammerspoon-tts.lua`** (installed by `setup.sh`). Open Hammerspoon once, grant **Accessibility**, run **`bash scripts/setup.sh`** if `~/.hammerspoon` did not exist yet, then **Reload Config** in Hammerspoon.
+
+**If media keys do nothing from Hammerspoon:** Reload and confirm **`cursor-read-aloud: taps started`** in **Hammerspoon → Console**. Copy the repo’s **`config/hammerspoon-tts.lua`** to **`~/.cursor/tts/scripts/hammerspoon-tts.lua`** and reload. **Debug:** Two different paths on purpose: `touch ~/.cursor/tts/.hammerspoon-tts-debug` is only an **on-switch** (it can stay **empty**). **`~/.cursor/tts/logs/hammerspoon-media-debug.log`** is the **log** (created when debug is on and you reload Hammerspoon, then grows as keys fire). Console also shows `[cursor-read-aloud]` lines. Press **Play** and **volume** once each; if the log never gains **`NSSystemDefined aux`** lines, the OS isn’t delivering those events to Hammerspoon (try **Input Monitoring** for Hammerspoon in **System Settings → Privacy & Security** if listed; avoid **Secure Input**, e.g. password fields). **Fallback:** try **ctrl+F8** (top-row Play/Pause) — the same script may receive F8+ctrl even when the dedicated Play key does not.
+
 The SwiftBar plugin is named **`cursor-read-aloud.5s.sh`**, so SwiftBar runs it about **every 5 seconds** (see [SwiftBar plugin naming](https://github.com/swiftbar/SwiftBar#plugin-naming)). On each run it lists **`~/Library/Sounds`** once—usually a **tiny** cost (single `readdir`, typically a handful of files) next to the rest of the script; the menu-bar image uses a **cached** base64 file. To refresh less often, rename the plugin (e.g. **`cursor-read-aloud.30s.sh`**) and re-copy it to your plugins folder.
 
 ## Manual Enqueue
