@@ -301,7 +301,11 @@ else
     echo "Notifications: Off | bash=$SCRIPTS_DIR/set_notifications.sh param1=on terminal=false refresh=true"
 fi
 
-echo "Notification sound: ${NOTIFICATION_SOUND}"
+case "$NOTIFICATION_SOUND" in
+    [Nn][Oo][Nn][Ee]) NOTIFICATION_SOUND_LABEL="None (silent)" ;;
+    *) NOTIFICATION_SOUND_LABEL="$NOTIFICATION_SOUND" ;;
+esac
+echo "Notification sound: ${NOTIFICATION_SOUND_LABEL}"
 export NOTIFICATION_SOUND_MENU_SCRIPTS="$SCRIPTS_DIR"
 export NOTIFICATION_SOUND_MENU_CURRENT="$NOTIFICATION_SOUND"
 python3 - <<'PY'
@@ -314,6 +318,7 @@ current = os.environ.get("NOTIFICATION_SOUND_MENU_CURRENT", "default").strip()
 
 builtins = [
     ("default", "Default"),
+    ("none", "None (silent)"),
     ("Glass", "Glass"),
     ("Ping", "Ping"),
     ("Tink", "Tink"),
@@ -333,6 +338,8 @@ builtins = [
 def selected(sid: str) -> bool:
     if sid == "default":
         return current.lower() == "default"
+    if sid == "none":
+        return current.lower() == "none"
     return sid == current or sid.lower() == current.lower()
 
 

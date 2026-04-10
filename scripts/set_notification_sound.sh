@@ -5,6 +5,7 @@
 # Usage: set_notification_sound.sh <name>
 #   e.g.: set_notification_sound.sh Glass
 #   Use "default" for terminal-notifier’s default chime.
+#   Use "none" for silent notifications (banner only, no alert sound).
 #
 set -euo pipefail
 

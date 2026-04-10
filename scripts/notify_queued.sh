@@ -124,6 +124,10 @@ if icon_cfg:
 
 notification_sound = (config.get("notification_sound") or "default").strip() or "default"
 
+
+def sound_is_silent(name: str) -> bool:
+    return name.strip().lower() == "none"
+
 # ── Resolve terminal-notifier binary ─────────────────────────────
 def exe_from_app_bundle(bundle: Path):
     if not bundle.is_dir():
@@ -192,10 +196,10 @@ if tn_bin:
     execute = shlex.quote(PLAY) + " " + shlex.quote(filepath)
     nid = os.path.splitext(os.path.basename(filepath))[0]
 
-    cmd = [
-        tn_bin,
-        "-group", nid,
-        "-sound", notification_sound,
+    cmd = [tn_bin, "-group", nid]
+    if not sound_is_silent(notification_sound):
+        cmd += ["-sound", notification_sound]
+    cmd += [
         "-ignoreDnD",
         "-title", "Cursor Read Aloud",
         "-subtitle", tt,
@@ -234,9 +238,10 @@ if not tn_bin:
     script = (
         f'display notification "{esc(preview)}" '
         f'with title "Cursor Read Aloud" '
-        f'subtitle "{esc(tt)}" '
-        f'sound name "{esc(osa_sound)}"'
+        f'subtitle "{esc(tt)}"'
     )
+    if not sound_is_silent(notification_sound):
+        script += f' sound name "{esc(osa_sound)}"'
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     if r.returncode == 0:
         log(f"notification sent (osascript) {os.path.basename(filepath)}")
