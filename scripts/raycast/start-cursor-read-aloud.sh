@@ -8,7 +8,7 @@
 # Optional parameters:
 # @raycast.icon 🐢
 # @raycast.packageName Cursor Read Aloud
-# @raycast.description Runs setup.sh, turns listening on (Piper + hooks path), opens SwiftBar, and launches Hammerspoon if it is not running.
+# @raycast.description Runs setup.sh, turns listening on (ElevenLabs + hooks path), and opens SwiftBar.
 
 # Documentation:
 # @raycast.needsConfirmation false
@@ -39,16 +39,6 @@ if [ -x "$SET_LISTENING" ]; then
   "$SET_LISTENING" on
 else
   echo "Warning: $SET_LISTENING missing after setup."
-fi
-
-if ! pgrep -xq "Hammerspoon" >/dev/null 2>&1; then
-  if open -a Hammerspoon 2>/dev/null; then
-    echo "Opened Hammerspoon."
-  else
-    echo "Hammerspoon not installed or failed to open (optional for media keys)."
-  fi
-else
-  echo "Hammerspoon already running — use Reload Config if setup changed init.lua."
 fi
 
 if open -a SwiftBar 2>/dev/null; then

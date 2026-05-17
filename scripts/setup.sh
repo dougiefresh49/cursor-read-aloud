@@ -7,14 +7,13 @@ TTS_DIR="$HOME/.cursor/tts"
 HOOKS_DIR="$HOME/.cursor"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 SWIFTBAR_PLUGINS_DIR="${SWIFTBAR_PLUGINS_DIR:-$HOME/projects/Swiftbar/Plugins}"
-PIPER_PORT=5111
 
 log() { echo "[setup] $*"; }
 err() { echo "[setup] ERROR: $*" >&2; }
 
 # ── 1. Create directory structure ──────────────────────────────────
 log "Creating directory structure under $TTS_DIR"
-mkdir -p "$TTS_DIR"/{models,queue,played,cache,scripts,logs,icons}
+mkdir -p "$TTS_DIR"/{models,queue,played,cache,scripts,logs,icons,sounds/default}
 
 # ── 1b. Menu bar + notification icons ─────────────────────────────
 ICON_SRC_DIR="$PROJECT_DIR/icons"
@@ -23,7 +22,6 @@ if [ -d "$ICON_SRC_DIR" ] && [ -f "$ICON_SRC_DIR/tmnt-icon.png" ] && [ -f "$ICON
     log "Installing icons to $ICON_DST_DIR"
     cp -f "$ICON_SRC_DIR/tmnt-icon.png" "$ICON_DST_DIR/tmnt-icon.png"
     cp -f "$ICON_SRC_DIR/tmnt-notification-queued.png" "$ICON_DST_DIR/tmnt-notification-queued.png"
-    # Downscale for SwiftBar (base64 header); keeps full-size copies for notifications
     if command -v sips >/dev/null 2>&1; then
         sips -Z 36 "$ICON_DST_DIR/tmnt-icon.png" --out "$ICON_DST_DIR/tmnt-menubar-idle.png" >/dev/null 2>&1 \
             || cp -f "$ICON_DST_DIR/tmnt-icon.png" "$ICON_DST_DIR/tmnt-menubar-idle.png"
@@ -37,104 +35,54 @@ else
     log "Optional repo icons missing under $ICON_SRC_DIR (SwiftBar uses emoji fallback)"
 fi
 
-# ── 2. Install piper-tts ──────────────────────────────────────────
-if python3 -c "import piper" 2>/dev/null; then
-    log "piper-tts already installed"
-else
-    log "Installing piper-tts..."
-    pip3 install piper-tts
-fi
-
-if python3 -c "import flask" 2>/dev/null; then
-    log "flask already installed (needed for Piper HTTP server)"
-else
-    log "Installing flask (required by Piper HTTP server)..."
-    pip3 install 'piper-tts[http]'
-fi
-
-# ── 3. Download voice model ───────────────────────────────────────
-MODEL_FILE="$TTS_DIR/models/en_US-libritts_r-medium.onnx"
-MODEL_JSON="$TTS_DIR/models/en_US-libritts_r-medium.onnx.json"
-HF_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts_r/medium"
-
-if [ -f "$MODEL_FILE" ] && [ -f "$MODEL_JSON" ]; then
-    log "Voice model already downloaded"
-else
-    log "Downloading en_US-libritts_r-medium voice model..."
-    if python3 -m piper.download_voices en_US-libritts_r-medium --data-dir "$TTS_DIR/models" 2>/dev/null; then
-        log "Downloaded via piper.download_voices"
+# ── 2. Copy .env file ────────────────────────────────────────────
+ENV_FILE="$PROJECT_DIR/.env"
+ENV_DEST="$TTS_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    if [ ! -f "$ENV_DEST" ] || ! diff -q "$ENV_FILE" "$ENV_DEST" >/dev/null 2>&1; then
+        log "Copying .env to $ENV_DEST"
+        cp "$ENV_FILE" "$ENV_DEST"
     else
-        log "piper.download_voices failed (likely SSL issue) — downloading via curl"
-        curl -L -o "$MODEL_FILE" "$HF_BASE/en_US-libritts_r-medium.onnx" || {
-            err "Failed to download model ONNX file"; exit 1;
-        }
-        curl -L -o "$MODEL_JSON" "$HF_BASE/en_US-libritts_r-medium.onnx.json" || {
-            err "Failed to download model config JSON"; exit 1;
-        }
-        log "Downloaded via curl fallback"
+        log ".env already up to date"
     fi
+else
+    log "No .env file found at $ENV_FILE — API keys must be set manually in $ENV_DEST"
 fi
 
-# ── 3b. Optional Piper voices (skip if already present) ──────────
-download_voice_pair() {
-    local vid="$1" base="$2"
-    local onnx="$TTS_DIR/models/${vid}.onnx"
-    local jsn="$TTS_DIR/models/${vid}.onnx.json"
-    if [ -f "$onnx" ] && [ -f "$jsn" ]; then
-        log "Voice $vid already downloaded"
-        return 0
-    fi
-    log "Downloading $vid..."
-    curl -L -f -o "$onnx" "${base}/${vid}.onnx" || {
-        err "Failed to download ${vid}.onnx"; return 1
-    }
-    curl -L -f -o "$jsn" "${base}/${vid}.onnx.json" || {
-        err "Failed to download ${vid}.onnx.json"; return 1
-    }
-    log "Downloaded $vid"
-}
+# ── 3. Install Piper (optional — kept for fallback) ──────────────
+if python3 -c "import piper" 2>/dev/null; then
+    log "piper-tts installed (optional fallback)"
+else
+    log "piper-tts not installed (optional — ElevenLabs is primary TTS)"
+    log "  To install: pip3 install piper-tts 'piper-tts[http]'"
+fi
 
-download_voice_pair "en_US-norman-medium" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/norman/medium" || true
-download_voice_pair "en_GB-northern_english_male-medium" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/northern_english_male/medium" || true
-download_voice_pair "en_US-ryan-high" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high" || true
-
-# ── 4. Copy scripts ───────────────────────────────────────────────
+# ── 4. Copy scripts ──────────────────────────────────────────────
 log "Installing scripts to $TTS_DIR/scripts/"
-cp "$PROJECT_DIR/scripts/ingest.sh"     "$TTS_DIR/scripts/ingest.sh"
-cp "$PROJECT_DIR/scripts/play.sh"       "$TTS_DIR/scripts/play.sh"
-cp "$PROJECT_DIR/scripts/stop.sh"       "$TTS_DIR/scripts/stop.sh"
-cp "$PROJECT_DIR/scripts/pause.sh"      "$TTS_DIR/scripts/pause.sh"
-cp "$PROJECT_DIR/scripts/play_latest.sh" "$TTS_DIR/scripts/play_latest.sh"
-cp "$PROJECT_DIR/scripts/media_control.sh" "$TTS_DIR/scripts/media_control.sh"
-cp "$PROJECT_DIR/scripts/restart.sh"    "$TTS_DIR/scripts/restart.sh"
-cp "$PROJECT_DIR/scripts/quit.sh"       "$TTS_DIR/scripts/quit.sh"
-cp "$PROJECT_DIR/scripts/set_speed.sh"   "$TTS_DIR/scripts/set_speed.sh"
-cp "$PROJECT_DIR/scripts/clear_queue.sh" "$TTS_DIR/scripts/clear_queue.sh"
-cp "$PROJECT_DIR/scripts/clear_thread_queue.sh" "$TTS_DIR/scripts/clear_thread_queue.sh"
-cp "$PROJECT_DIR/scripts/set_listening.sh" "$TTS_DIR/scripts/set_listening.sh"
-cp "$PROJECT_DIR/scripts/enqueue_manual.sh" "$TTS_DIR/scripts/enqueue_manual.sh"
-cp "$PROJECT_DIR/scripts/piper_http_launch.sh" "$TTS_DIR/scripts/piper_http_launch.sh"
-cp "$PROJECT_DIR/scripts/set_voice.sh" "$TTS_DIR/scripts/set_voice.sh"
-cp "$PROJECT_DIR/scripts/notify_queued.sh" "$TTS_DIR/scripts/notify_queued.sh"
-cp "$PROJECT_DIR/scripts/set_notifications.sh" "$TTS_DIR/scripts/set_notifications.sh"
-cp "$PROJECT_DIR/scripts/set_notification_sound.sh" "$TTS_DIR/scripts/set_notification_sound.sh"
-cp "$PROJECT_DIR/scripts/clean_text.py"  "$TTS_DIR/scripts/clean_text.py"
-cp "$PROJECT_DIR/config/hammerspoon-tts.lua" "$TTS_DIR/scripts/hammerspoon-tts.lua"
-cp "$PROJECT_DIR/scripts/build_read_aloud_notifier_app.sh" "$TTS_DIR/scripts/build_read_aloud_notifier_app.sh"
-chmod +x "$TTS_DIR/scripts/"*.sh
+for script in \
+    ingest.sh play.sh stop.sh pause.sh play_latest.sh media_control.sh \
+    restart.sh quit.sh set_speed.sh clear_queue.sh clear_thread_queue.sh \
+    set_listening.sh enqueue_manual.sh piper_http_launch.sh set_voice.sh \
+    notify_queued.sh set_notifications.sh set_notification_sound.sh \
+    clean_text.py gemini_process.py fetch_voices.py load_env.sh \
+    paste_voice_id.sh generate_sfx.sh random_sfx.sh cleanup_played.sh \
+    build_read_aloud_notifier_app.sh; do
+    if [ -f "$PROJECT_DIR/scripts/$script" ]; then
+        cp "$PROJECT_DIR/scripts/$script" "$TTS_DIR/scripts/$script"
+    fi
+done
+chmod +x "$TTS_DIR/scripts/"*.sh "$TTS_DIR/scripts/"*.py 2>/dev/null || true
 
 # ── 5. Write default config (if not present) ──────────────────────
 CONFIG_FILE="$TTS_DIR/config.json"
 if [ -f "$CONFIG_FILE" ]; then
-    log "Config already exists at $CONFIG_FILE — skipping"
+    log "Config already exists at $CONFIG_FILE — migrating fields"
 else
     log "Writing default config to $CONFIG_FILE"
     cp "$PROJECT_DIR/config/config.json" "$CONFIG_FILE"
 fi
 
+# Migrate config: add new ElevenLabs fields, preserve user values
 python3 - <<'PY'
 import json
 import os
@@ -146,22 +94,30 @@ try:
 except (OSError, json.JSONDecodeError):
     raise SystemExit(0)
 
+defaults = {
+    "elevenlabs_voice_id": "",
+    "elevenlabs_model_id": "eleven_v3",
+    "gemini_model": "gemini-2.0-flash-lite",
+    "default_speed": 1.25,
+    "notifications_enabled": False,
+    "notification_icon": "~/.cursor/tts/icons/tmnt-notification-queued.png",
+    "notification_sender": "",
+    "terminal_notifier_app": "",
+    "notification_sound": "random_sfx",
+    "sfx_categories": ["boom", "bram", "fantasy", "impact", "weapon"],
+    "played_retention_count": 50,
+}
+
 changed = False
-if "notifications_enabled" not in c:
-    c["notifications_enabled"] = False
-    changed = True
-if "notification_icon" not in c:
+for key, val in defaults.items():
+    if key not in c:
+        c[key] = val
+        changed = True
+
+if c.get("notification_icon") == "~/.cursor/tts/icons/tmnt-icon.png":
     c["notification_icon"] = "~/.cursor/tts/icons/tmnt-notification-queued.png"
     changed = True
-elif c.get("notification_icon") == "~/.cursor/tts/icons/tmnt-icon.png":
-    c["notification_icon"] = "~/.cursor/tts/icons/tmnt-notification-queued.png"
-    changed = True
-if "terminal_notifier_app" not in c:
-    c["terminal_notifier_app"] = ""
-    changed = True
-if "notification_sound" not in c:
-    c["notification_sound"] = "default"
-    changed = True
+
 if changed:
     with open(p, "w", encoding="utf-8") as f:
         json.dump(c, f, indent=2)
@@ -182,23 +138,24 @@ else
     cp "$PROJECT_DIR/config/hooks.json" "$HOOKS_FILE"
 fi
 
-# ── 7. Install LaunchAgent ─────────────────────────────────────────
+# ── 7. LaunchAgent for Piper (optional) ───────────────────────────
 PLIST_NAME="com.local.piper-tts-server.plist"
 PLIST_DEST="$LAUNCH_AGENTS_DIR/$PLIST_NAME"
+PLIST_LABEL="com.local.piper-tts-server"
 mkdir -p "$LAUNCH_AGENTS_DIR"
 
-log "Generating LaunchAgent plist (home=$HOME)"
-sed -e "s|__HOME__|$HOME|g" \
-    "$PROJECT_DIR/config/$PLIST_NAME.template" > "$PLIST_DEST"
-
-# Load/reload the agent
-PLIST_LABEL="com.local.piper-tts-server"
-if launchctl list "$PLIST_LABEL" &>/dev/null; then
-    log "Reloading LaunchAgent..."
-    launchctl unload "$PLIST_DEST" 2>/dev/null || true
+if python3 -c "import piper" 2>/dev/null; then
+    log "Setting up Piper LaunchAgent (fallback TTS)"
+    sed -e "s|__HOME__|$HOME|g" \
+        "$PROJECT_DIR/config/$PLIST_NAME.template" > "$PLIST_DEST"
+    if launchctl list "$PLIST_LABEL" &>/dev/null; then
+        launchctl unload "$PLIST_DEST" 2>/dev/null || true
+    fi
+    launchctl load "$PLIST_DEST"
+    log "Piper HTTP server LaunchAgent loaded (fallback)"
+else
+    log "Skipping Piper LaunchAgent (not installed)"
 fi
-launchctl load "$PLIST_DEST"
-log "Piper HTTP server LaunchAgent loaded"
 
 # ── 8. Install SwiftBar plugin ─────────────────────────────────────
 if [ -d "$SWIFTBAR_PLUGINS_DIR" ]; then
@@ -211,64 +168,41 @@ else
     log "or manually copy plugins/cursor-read-aloud.5s.sh to your SwiftBar plugins folder."
 fi
 
-# ── 8a. Hammerspoon — media Play / ctrl+Play (optional) ────────────
-HS_DIR="$HOME/.hammerspoon"
-HS_INIT="$HS_DIR/init.lua"
-HS_MARK="cursor-read-aloud media key tap"
-if [ -d "$HS_DIR" ]; then
-    if [ -f "$HS_INIT" ] && grep -q "$HS_MARK" "$HS_INIT" 2>/dev/null; then
-        log "Hammerspoon init.lua already loads Cursor Read Aloud media keys"
-    else
-        log "Appending Cursor Read Aloud media-key loader to $HS_INIT"
-        {
-            echo ""
-            echo "-- $HS_MARK (added by cursor-read-aloud setup)"
-            echo 'pcall(function() dofile(os.getenv("HOME") .. "/.cursor/tts/scripts/hammerspoon-tts.lua") end)'
-        } >> "$HS_INIT"
-        log "Reload Hammerspoon (menu bar icon → Reload Config) if it is already running"
-    fi
+# ── 9. Fetch ElevenLabs voices ───────────────────────────────────
+log "Fetching ElevenLabs voices..."
+source "$TTS_DIR/scripts/load_env.sh" 2>/dev/null || true
+if [ -n "${ELEVENLABS_API_KEY:-}" ]; then
+    python3 "$TTS_DIR/scripts/fetch_voices.py" --refresh >/dev/null 2>&1 || log "Voice fetch failed (check API key)"
+    VOICE_COUNT=$(python3 -c "import json; print(len(json.load(open('$TTS_DIR/cache/voices.json'))))" 2>/dev/null || echo "0")
+    log "Cached $VOICE_COUNT ElevenLabs voices"
 else
-    log "Optional media keys: brew install --cask hammerspoon"
-    log "  Open Hammerspoon once (grant Accessibility), then re-run setup to append init.lua."
-    log "  ctrl+Play → Play Latest; Play → pause/resume TTS or play latest if queue has items."
+    log "No ELEVENLABS_API_KEY — skipping voice fetch"
 fi
 
-# ── 8b. Custom notification sounds in ~/Library/Sounds ─────────────
-USER_SOUNDS="$HOME/Library/Sounds"
-if [ -d "$USER_SOUNDS" ] && [ -n "$(find "$USER_SOUNDS" -maxdepth 1 -type f \( -iname '*.aiff' -o -iname '*.aif' -o -iname '*.wav' -o -iname '*.caf' -o -iname '*.m4a' \) -print -quit 2>/dev/null)" ]; then
-    log "Custom notification sounds found in $USER_SOUNDS — listed in SwiftBar → Notification sound after built-ins (past the --- row)."
-fi
-
-# ── 9. Verify Piper HTTP server ───────────────────────────────────
-VERIFY_PORT="$PIPER_PORT"
-if [ -f "$CONFIG_FILE" ]; then
-    VERIFY_PORT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('piper_port', $PIPER_PORT))" 2>/dev/null || echo "$PIPER_PORT")
-fi
-log "Waiting for Piper HTTP server on port $VERIFY_PORT..."
-MAX_WAIT=15
-WAITED=0
-while ! curl -s "localhost:$VERIFY_PORT/voices" >/dev/null 2>&1; do
-    sleep 1
-    WAITED=$((WAITED + 1))
-    if [ "$WAITED" -ge "$MAX_WAIT" ]; then
-        err "Piper HTTP server did not start within ${MAX_WAIT}s"
-        err "Check logs at: $TTS_DIR/logs/piper-server.log"
-        err "Try running manually: $TTS_DIR/scripts/piper_http_launch.sh"
-        exit 1
+# ── 10. Pre-generate notification sounds ─────────────────────────
+if [ -n "${ELEVENLABS_API_KEY:-}" ]; then
+    SFX_COUNT=$(find "$TTS_DIR/sounds/default" -name '*.mp3' -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$SFX_COUNT" -lt 5 ]; then
+        log "Generating notification sound effects..."
+        "$TTS_DIR/scripts/generate_sfx.sh" 2>/dev/null || log "SFX generation failed (non-critical)"
+        SFX_COUNT=$(find "$TTS_DIR/sounds/default" -name '*.mp3' -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+        log "Generated $SFX_COUNT notification sounds"
+    else
+        log "$SFX_COUNT notification sounds already cached"
     fi
-done
-log "Piper HTTP server is running on port $VERIFY_PORT"
+fi
 
 log ""
 log "Setup complete! Summary:"
 log "  Config:      $CONFIG_FILE"
 log "  Scripts:     $TTS_DIR/scripts/"
 log "  Queue:       $TTS_DIR/queue/"
+log "  Sounds:      $TTS_DIR/sounds/default/"
 log "  Hooks:       $HOOKS_FILE"
-log "  LaunchAgent: $PLIST_DEST"
-log "  Piper:       http://localhost:$VERIFY_PORT"
+log "  TTS Engine:  ElevenLabs (eleven_v3) — falls back to macOS say"
 log ""
-log "Try: echo 'Hello world' | python3 $TTS_DIR/scripts/clean_text.py"
-log "Optional: brew install terminal-notifier — click macOS notifications to play queued replies when notifications are enabled in the menu."
+log "Next steps:"
+log "  1. Set your ElevenLabs voice in the SwiftBar menu (Voice submenu)"
+log "  2. Enable notifications if desired (Settings → Notifications)"
+log ""
 log "Hotkeys: SwiftBar menu — Play Latest (ctrl+shift+p), Pause/Resume (ctrl+shift+space)."
-log "         With Hammerspoon: ctrl+Play → latest message; Play → TTS / queue (see setup log above)."
