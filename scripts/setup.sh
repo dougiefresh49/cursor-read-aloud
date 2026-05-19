@@ -67,7 +67,7 @@ for script in \
     clean_text.py gemini_process.py fetch_voices.py load_env.sh \
     paste_voice_id.sh generate_sfx.sh random_sfx.sh cleanup_played.sh \
     build_read_aloud_notifier_app.sh \
-    hook_stop.sh hook_prompt.sh tts-server.sh \
+    hook_stop.sh hook_prompt.sh hook_ask_user.sh tts-server.sh \
     set_streaming.sh \
     set_session_mute.sh set_session_voice.sh \
     ingest_claude_code.sh fetch_credits.sh; do

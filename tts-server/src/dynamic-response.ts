@@ -114,3 +114,65 @@ export async function handleDynamicResponse(
   log("dynamic", "Stream failed — falling back to cached phrase");
   return playRandomPhrase(voiceId);
 }
+
+export async function handleAskUser(
+  voiceId: string,
+  questionText: string
+): Promise<boolean> {
+  if (!questionText?.trim()) return false;
+
+  const character = getCharacter(voiceId);
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    log("dynamic", "No GEMINI_API_KEY for ask-user — streaming raw question");
+    return streamAndPlay(voiceId, questionText);
+  }
+
+  const config = loadConfig();
+  const ai = new GoogleGenAI({ apiKey: key });
+
+  const charContext = character
+    ? `You are ${character.name} from ${character.franchise}. Personality: ${character.personality}. Speech style: ${character.speechStyle}.`
+    : "You are a helpful coding assistant.";
+
+  const systemPrompt = `${charContext}
+
+Your AI coding assistant just asked the developer a question with multiple choices. Read the question and options aloud naturally, as if YOU are the one asking. Stay in character.
+
+Rules:
+- Paraphrase the question naturally — don't read it verbatim like a robot.
+- List the options briefly (just the label and a few words of context).
+- Keep it concise — under 40 words total.
+- No quotes, no stage directions, no markdown.
+- Output ONLY the spoken text.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.gemini_model,
+      contents: `Question and options: "${questionText}"`,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.7,
+        maxOutputTokens: 150,
+      },
+    });
+
+    const text = response.text?.trim();
+    if (!text) return streamAndPlay(voiceId, questionText);
+
+    log("dynamic", `Ask-user response: "${text}"`);
+    return streamAndPlay(voiceId, text);
+  } catch (err: any) {
+    log("dynamic", `Ask-user Gemini error: ${err.message}`);
+    return streamAndPlay(voiceId, questionText);
+  }
+}
+
+async function streamAndPlay(voiceId: string, text: string): Promise<boolean> {
+  const stream = await streamTTS(text, { voiceId });
+  if (stream) {
+    await playStreamBuffer(stream as any, "ask-user-response");
+    return true;
+  }
+  return false;
+}
