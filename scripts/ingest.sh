@@ -195,4 +195,8 @@ fi
 
 "$TTS_DIR/scripts/notify_queued.sh" "$filepath" 2>/dev/null || true
 
+
+# Periodically clean old played files (runs in background, non-blocking)
+"$TTS_DIR/scripts/cleanup_played.sh" &>/dev/null &
+
 exit 0

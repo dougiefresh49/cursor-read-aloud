@@ -2,8 +2,8 @@
 #
 # notify_queued.sh — macOS notification after a queue file is written (if enabled in config).
 #
-# Prefers ~/.cursor/tts/config.json → terminal_notifier_app (custom .app with your icon),
-# then /Applications/terminal-notifier.app, then PATH. Falls back to osascript (no click action).
+# Supports "random_sfx" notification sound mode that picks a random ElevenLabs-generated
+# sound effect from the cache.
 #
 # Usage: notify_queued.sh /absolute/path/to/queue/file.json
 #
@@ -55,7 +55,8 @@ from pathlib import Path
 filepath, config_path, log_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
 TTS_DIR = os.path.expanduser("~/.cursor/tts")
-PLAY = os.path.join(TTS_DIR, "scripts", "play.sh")
+PLAY = os.path.join(TTS_DIR, "scripts", "play_node.sh")
+RANDOM_SFX = os.path.join(TTS_DIR, "scripts", "random_sfx.sh")
 
 
 def log(msg: str) -> None:
@@ -111,8 +112,6 @@ if len(tt) > 60:
 
 
 # ── Notification image (optional config key) ─────────────────────
-# Big Sur+ broke terminal-notifier’s -appIcon (private API). Use -contentImage
-# so the TMNT/custom art still appears beside the message.
 icon_uri = ""
 icon_cfg = config.get("notification_icon", "")
 if icon_cfg:
@@ -127,6 +126,26 @@ notification_sound = (config.get("notification_sound") or "default").strip() or 
 
 def sound_is_silent(name: str) -> bool:
     return name.strip().lower() == "none"
+
+
+def sound_is_random_sfx(name: str) -> bool:
+    return name.strip().lower() == "random_sfx"
+
+
+# ── Handle random_sfx: play a random sound effect ────────────────
+sfx_path = None
+if sound_is_random_sfx(notification_sound):
+    try:
+        r = subprocess.run(
+            ["bash", RANDOM_SFX],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            sfx_path = r.stdout.strip()
+            log(f"random sfx: {os.path.basename(sfx_path)}")
+    except Exception as e:
+        log(f"random_sfx failed: {e}")
+
 
 # ── Resolve terminal-notifier binary ─────────────────────────────
 def exe_from_app_bundle(bundle: Path):
@@ -153,7 +172,6 @@ def resolve_terminal_notifier(cfg: dict):
     bundles = []
     if custom:
         bundles.append(Path(os.path.expanduser(custom)))
-    # Same default path as build_read_aloud_notifier_app.sh — use custom app icon on the left
     home_app = Path.home() / "Applications" / "CursorReadAloudNotifier.app"
     try:
         custom_res = Path(os.path.expanduser(custom)).resolve() if custom else None
@@ -197,20 +215,23 @@ if tn_bin:
     nid = os.path.splitext(os.path.basename(filepath))[0]
 
     cmd = [tn_bin, "-group", nid]
-    if not sound_is_silent(notification_sound):
+
+    # For random_sfx, we suppress the built-in notification sound
+    # and play the sfx separately via afplay
+    if sound_is_random_sfx(notification_sound) or sound_is_silent(notification_sound):
+        pass  # no -sound flag = silent notification
+    else:
         cmd += ["-sound", notification_sound]
+
     cmd += [
         "-ignoreDnD",
-        "-title", "Cursor Read Aloud",
-        "-subtitle", tt,
+        "-title", tt,
         "-message", preview,
         "-execute", execute,
     ]
     if icon_uri:
         cmd += ["-contentImage", icon_uri]
 
-    # Left “app” icon: always comes from the notification sender. macOS does not allow
-    # hiding it. Optional -sender uses another *installed* app’s bundle icon (see README).
     sender = (config.get("notification_sender") or "").strip()
     if sender:
         cmd += ["-sender", sender]
@@ -221,7 +242,7 @@ if tn_bin:
     else:
         err = (r.stderr or r.stdout or "").strip()
         log(f"terminal-notifier exit {r.returncode}: {err}; falling back to osascript")
-        tn_bin = None  # trigger fallback below
+        tn_bin = None
     if r.stderr and r.stderr.strip():
         log(f"terminal-notifier stderr: {r.stderr.strip()}")
 
@@ -230,17 +251,15 @@ if not tn_bin:
     def esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace('"', '\\"')
 
-    # AppleScript only accepts installed alert sound names, not "default"
     osa_sound = notification_sound
     if osa_sound.lower() == "default":
         osa_sound = "Glass"
 
     script = (
         f'display notification "{esc(preview)}" '
-        f'with title "Cursor Read Aloud" '
-        f'subtitle "{esc(tt)}"'
+        f'with title "{esc(tt)}"'
     )
-    if not sound_is_silent(notification_sound):
+    if not sound_is_silent(notification_sound) and not sound_is_random_sfx(notification_sound):
         script += f' sound name "{esc(osa_sound)}"'
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     if r.returncode == 0:
@@ -248,6 +267,18 @@ if not tn_bin:
     else:
         err = (r.stderr or r.stdout or "").strip()
         log(f"osascript failed (exit {r.returncode}): {err}")
+
+# ── Play random sfx separately ───────────────────────────────────
+if sfx_path and os.path.isfile(sfx_path):
+    try:
+        subprocess.Popen(
+            ["afplay", sfx_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        log(f"playing sfx: {os.path.basename(sfx_path)}")
+    except Exception as e:
+        log(f"afplay sfx failed: {e}")
 PY
 
 exit 0

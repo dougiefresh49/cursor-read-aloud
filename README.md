@@ -1,32 +1,64 @@
 # <img src="icons/tmnt-notification-queued.png" alt="Read aloud" width="40" /> Cursor Read Aloud
 
-A local tool that reads Cursor AI agent responses aloud via a macOS menu bar dropdown. Uses [Piper TTS](https://github.com/OHF-Voice/piper1-gpl) with the `en_US-libritts_r-medium` voice model for fast, offline speech synthesis.
+A macOS menu bar tool that reads AI coding agent responses aloud using [ElevenLabs](https://elevenlabs.io) TTS. Supports both **Cursor IDE** and **Claude Code** with natural speech powered by Gemini text preprocessing and ElevenLabs v3 audio tags.
 
 ## How It Works
 
-1. A Cursor `afterAgentResponse` hook captures each assistant reply and queues it as a JSON file
-2. A SwiftBar menu bar plugin lists queued responses **by agent thread** (with play/pause, start over, and section labels). **Setup** copies TMNT icons into `~/.cursor/tts/icons/`; the menu bar shows a calm turtle when the queue is empty and a “queued” turtle when there are waiting messages. **Notifications** (terminal-notifier) default to the queued TMNT art as the **content image** (large attachment on the right).
-3. Open a thread submenu and pick a message to clean the text (strip code blocks, tables-to-prose, etc.) and play it via Piper TTS
-4. Falls back to macOS `say` if Piper is unavailable
+1. A hook captures each assistant reply and queues it as a JSON file:
+   - **Cursor**: `afterAgentResponse` hook in `~/.cursor/hooks.json`
+   - **Claude Code**: `Stop` hook in `~/.claude/settings.json` (reads transcript JSONL)
+2. A **SwiftBar** menu bar plugin lists queued responses grouped by session/thread with playback controls
+3. Text is processed through **Gemini** (converts markdown to natural speech with emotion tags) then synthesized via **ElevenLabs TTS** (eleven_v3 model)
+4. Falls back to macOS `say` if ElevenLabs is unavailable
 
 ## Prerequisites
 
 - macOS
 - Python 3.9+
 - [SwiftBar](https://github.com/swiftbar/SwiftBar) (`brew install --cask swiftbar`)
+- [ElevenLabs](https://elevenlabs.io) API key
+- [Gemini](https://ai.google.dev) API key (optional, for text preprocessing)
 
 ## Setup
 
 ```bash
+# 1. Add API keys to .env (project root or ~/.cursor/tts/.env)
+echo "ELEVENLABS_API_KEY=your_key_here" >> .env
+echo "GEMINI_API_KEY=your_key_here" >> .env
+
+# 2. Run setup
 bash scripts/setup.sh
 ```
 
 This will:
 
-- Install `piper-tts` via pip
-- Download the `en_US-libritts_r-medium` voice model (\~79 MB) plus optional English voices: Norman (medium), Northern English male (medium), and Ryan (high, ONNX \~121 MB)—skipped if the `.onnx` / `.onnx.json` pairs are already in `~/.cursor/tts/models/`
-- Create the directory structure under `~/.cursor/tts/`
-- Copy scripts, install the Cursor hook, install a LaunchAgent that starts Piper via `piper_http_launch.sh` (reads `model` and `piper_port` from config), and install the SwiftBar plugin
+- Copy `.env` and scripts to `~/.cursor/tts/`
+- Create the directory structure (`queue/`, `played/`, `sounds/`, `cache/`, `logs/`)
+- Install the SwiftBar plugin and TMNT menu bar icons
+- Fetch your ElevenLabs voices and cache them
+- Pre-generate notification sound effects via ElevenLabs Sound Effects API
+- Install the Cursor hook (`~/.cursor/hooks.json`)
+
+For **Claude Code** support, add the Stop hook to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["/Users/YOU/.cursor/tts/scripts/ingest_claude_code.sh"],
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ## Configuration
 
@@ -34,136 +66,158 @@ Edit `~/.cursor/tts/config.json`:
 
 ```json
 {
-  "piper_port": 5111,
-  "speaker_id": 0,
+  "elevenlabs_voice_id": "oFMuHQNZ0Bh0jz5SJXQy",
+  "elevenlabs_model_id": "eleven_v3",
+  "gemini_model": "gemini-2.0-flash-lite",
   "default_speed": 1.25,
-  "model": "en_US-libritts_r-medium",
-  "notifications_enabled": false,
+  "notifications_enabled": true,
   "notification_icon": "~/.cursor/tts/icons/tmnt-notification-queued.png",
   "notification_sender": "",
   "terminal_notifier_app": "",
-  "notification_sound": "default"
+  "notification_sound": "random_sfx",
+  "sfx_categories": ["boom", "bram", "fantasy", "impact", "weapon"],
+  "played_retention_count": 50
 }
 ```
 
-- **default_speed**: Playback speed multiplier (0.75x to 2.0x). Also adjustable from the menu bar speed submenu.
-- **model**: Piper voice id (no file extension), matching the base name of files in `models/`, e.g. `en_US-ryan-high`. Changing this from the **Voice** menu restarts Piper when the server is running.
-- **speaker_id**: Piper speaker index (0-903 for `en_US-libritts_r-medium`; use `0` for the single-speaker voices). Selecting a non-LibriTTS voice from the menu sets this to `0` automatically.
-- **piper_port**: Port for the local Piper HTTP server (used by the launch script and `play.sh`).
-- **notifications_enabled**: When `true`, each new queued reply triggers a macOS notification. With **terminal-notifier** installed (stock or custom app below), **clicking** the notification runs `play.sh` for that item. Without it, a plain AppleScript notification appears (open the Read Aloud menu to play). Toggle from the menu bar without editing JSON.
-- **notification_icon**: Path to a PNG/JPEG passed to terminal-notifier’s **`-contentImage`** (expanded `~`). That flag still works on modern macOS; **`-appIcon`** does not (broken since Big Sur). Default is `~/.cursor/tts/icons/tmnt-notification-queued.png`. Set `""` for no custom image.
-- **notification_sender**: Optional bundle ID of another **installed** app. When set, **`-sender`** forces the **left** banner icon to that app’s icon. Leave **`""`** if you use a **custom notifier `.app`** (below)—otherwise **`-sender`** overrides your custom app’s icon.
-- **terminal_notifier_app**: Optional path to the **custom** `.app` from **`build_read_aloud_notifier_app.sh`**. When **non-empty**, that bundle is used first. When **empty**, `notify_queued.sh` still tries **`~/Applications/CursorReadAloudNotifier.app`** automatically (the build script’s default output). If that folder is missing, it falls back to stock **`/Applications/terminal-notifier.app`** — which shows the **Terminal** icon on the left. **`hook.log`** lines **`notifier binary: …`** show which binary ran.
-- **notification_sound**: Sound name for the banner chime. **Not** set in System Settings for the tone itself—you choose the name here (and **System Settings → Notifications** only controls things like **alert style** and whether notifications are allowed). Use **`default`** for terminal-notifier’s default, **`none`** for silent banners (no chime while **`notifications_enabled`** is still on), or any built-in **alert sound name** (same names as **System Settings → Sound → Sound Effects**—the list comes from Apple’s classic alert set and matches what **`terminal-notifier -help`** describes for **`-sound`**). **Custom** sounds: put **`.aiff`**, **`.wav`**, **`.caf`**, or **`.m4a`** files in **`~/Library/Sounds`**; the **sound name** is the **filename without extension** (Apple’s rule). The SwiftBar menu shows **one list**: built-ins, then a disabled **`---`** row, then any custom files—no extra section header. Same value is passed to **terminal-notifier** **`-sound`** and to AppleScript **`sound name`** when falling back. You can also edit JSON or use **`set_notification_sound.sh`**.
-
-### Notification icons (why two icons?)
-
-| Place             | What it is                                     | How to control                                                                                                                                                                                    |
-| ----------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Left** (small)  | The **sending app’s** icon (always shown)      | Use **`terminal_notifier_app`** for your own TMNT (or leave unset for stock terminal-notifier). Optionally **`notification_sender`** to impersonate another installed app. **Cannot be removed.** |
-| **Right** (large) | **Content image** from **`notification_icon`** | Your TMNT “queued” PNG (or any path you set).                                                                                                                                                     |
-
-### Custom notifier app (your icon on the left)
-
-1. Install a working **terminal-notifier** (e.g. `brew install --cask terminal-notifier`, or build a newer `.app` for macOS 15+ per **Troubleshooting**).
-2. From the repo: **`bash scripts/build_read_aloud_notifier_app.sh`**
-   - Copies `terminal-notifier.app` to **`~/Applications/CursorReadAloudNotifier.app`** (override: `bash scripts/build_read_aloud_notifier_app.sh /path/to/terminal-notifier.app "$HOME/Applications/Out.app" icons/tmnt-icon.png`).
-   - Uses **`icons/tmnt-icon.png`** for the **app** icon (good for the small left glyph); pass a different PNG as the 3rd argument if you prefer.
-3. Add to **`~/.cursor/tts/config.json`**: `"terminal_notifier_app": "/Users/YOU/Applications/CursorReadAloudNotifier.app"` (use your real path).
-4. First launch: if macOS blocks it, **right‑click → Open** once, or `xattr -cr ~/Applications/CursorReadAloudNotifier.app`.
-5. Re-run **`bash scripts/setup.sh`** so **`notify_queued.sh`** is current, or copy **`scripts/notify_queued.sh`** to **`~/.cursor/tts/scripts/`**. Keep **`notification_sender`** empty.
+| Key | Description |
+|-----|-------------|
+| **elevenlabs_voice_id** | Voice ID from your ElevenLabs account. Set via the Voice menu or Paste Voice ID. |
+| **elevenlabs_model_id** | ElevenLabs model (`eleven_v3` recommended). |
+| **gemini_model** | Gemini model for text preprocessing. Falls back to local `clean_text.py` if unavailable. |
+| **default_speed** | Playback speed (0.75x–2.0x). ElevenLabs handles up to 1.2x natively; faster speeds use `afplay` rate adjustment. |
+| **notifications_enabled** | macOS notifications when a reply is queued. Click to play. |
+| **notification_sound** | `random_sfx` (ElevenLabs-generated), `default`, `none`, or any macOS alert sound name. |
+| **sfx_categories** | Categories for generated notification sound effects. |
+| **played_retention_count** | Max played files to keep before auto-cleanup (default 50). |
 
 ## Menu Bar Controls
 
-| Action                  | Description                                                                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Click a queued response | Clean text and play via TTS                                                                                                       |
-| Stop Playback           | Kill active audio                                                                                                                 |
-| Notifications On/Off    | Enable or disable macOS notifications when a reply is queued (see **notifications_enabled**)                                      |
-| Notification sound      | Submenu: built-ins (including **None (silent)**), **`---`**, then **`~/Library/Sounds`** → **`notification_sound`**                |
-| Speed submenu           | Change playback speed                                                                                                             |
-| Voice submenu           | Switch Piper model (requires the matching `.onnx` + `.onnx.json` in `~/.cursor/tts/models/`); restarts Piper when listening is on |
-| Clear All Messages      | Mark all responses as played                                                                                                      |
-| Open Config             | Edit config.json in default editor                                                                                                |
-| Open Logs               | Browse log directory                                                                                                              |
+| Section | Description |
+|---------|-------------|
+| **Play Latest** | Play the newest queued message (ctrl+shift+p) |
+| **Agent Messages** | Queued responses grouped by session. Shows session name for Claude Code, thread title for Cursor. Click to play; items show processing state while generating audio. |
+| **Voice** | Select from your ElevenLabs voices (My Voices / Library Voices), paste a custom voice ID, or refresh the voice cache. |
+| **Session Voices** | Assign different voices to different Claude Code sessions. Useful for distinguishing multiple concurrent sessions. |
+| **Speed** | Playback speed submenu (0.75x – 2.0x). |
+| **Notifications** | Toggle on/off. |
+| **Notification Sound** | Random SFX, built-in macOS sounds, or custom sounds from `~/Library/Sounds`. Generate/regenerate SFX from here. |
+| **ElevenLabs** | Shows your plan, character usage, remaining credits, and reset date. |
+| **Debug / Logs** | Open config or log directory. |
+| **Listening** | Start/stop listening for new agent responses. |
 
-### Hotkeys (SwiftBar + optional Hammerspoon)
+### Hotkeys
 
-| Shortcut           | Action |
-| ------------------ | ------ |
-| **ctrl+shift+p**   | **Play Latest** — newest queued message (SwiftBar global shortcut; also in the menu) |
-| **ctrl+shift+space** | **Pause / Resume** during playback (when the Pause/Resume row is shown) |
-| **ctrl+Play** (dedicated Play/Pause key) | **Play Latest** — [Hammerspoon](https://www.hammerspoon.org/) + Accessibility; if the dedicated key never fires in HS, use **ctrl+F8** (same row as Play on many Macs) |
-| **Play** (alone)   | If TTS is playing or the queue has items: same as menu Pause/Resume / play latest; otherwise the key passes through to Music / Spotify |
+| Shortcut | Action |
+|----------|--------|
+| **ctrl+shift+p** | Play latest queued message |
+| **ctrl+shift+space** | Pause / Resume playback |
 
-Hammerspoon loads **`~/.cursor/tts/scripts/hammerspoon-tts.lua`** (installed by `setup.sh`). Open Hammerspoon once, grant **Accessibility**, run **`bash scripts/setup.sh`** if `~/.hammerspoon` did not exist yet, then **Reload Config** in Hammerspoon.
+## Text Processing Pipeline
 
-**If media keys do nothing from Hammerspoon:** Reload and confirm **`cursor-read-aloud: taps started`** in **Hammerspoon → Console**. Copy the repo’s **`config/hammerspoon-tts.lua`** to **`~/.cursor/tts/scripts/hammerspoon-tts.lua`** and reload. **Debug:** Two different paths on purpose: `touch ~/.cursor/tts/.hammerspoon-tts-debug` is only an **on-switch** (it can stay **empty**). **`~/.cursor/tts/logs/hammerspoon-media-debug.log`** is the **log** (created when debug is on and you reload Hammerspoon, then grows as keys fire). Console also shows `[cursor-read-aloud]` lines. Press **Play** and **volume** once each; if the log never gains **`NSSystemDefined aux`** lines, the OS isn’t delivering those events to Hammerspoon (try **Input Monitoring** for Hammerspoon in **System Settings → Privacy & Security** if listed; avoid **Secure Input**, e.g. password fields). **Fallback:** try **ctrl+F8** (top-row Play/Pause) — the same script may receive F8+ctrl even when the dedicated Play key does not.
+Raw agent responses go through two stages before synthesis:
 
-The SwiftBar plugin is named **`cursor-read-aloud.5s.sh`**, so SwiftBar runs it about **every 5 seconds** (see [SwiftBar plugin naming](https://github.com/swiftbar/SwiftBar#plugin-naming)). On each run it lists **`~/Library/Sounds`** once—usually a **tiny** cost (single `readdir`, typically a handful of files) next to the rest of the script; the menu-bar image uses a **cached** base64 file. To refresh less often, rename the plugin (e.g. **`cursor-read-aloud.30s.sh`**) and re-copy it to your plugins folder.
+### 1. Gemini Preprocessing (`gemini_process.py`)
+
+Converts developer-oriented markdown into natural spoken text with ElevenLabs v3 audio tags:
+
+- Removes code blocks, file paths, shell commands
+- Converts technical references to natural speech ("the Button component" instead of `src/components/Button.tsx`)
+- Adds emotion tags: `[sighs]`, `[excited]`, `[whispers]`, `[laughs]`
+- Uses CAPS for emphasis and ellipses for natural pauses
+- Summarizes long lists instead of reading each item
+- Targets under 4000 characters
+
+### 2. Fallback: Local Cleaning (`clean_text.py`)
+
+Used when Gemini is unavailable:
+
+- Strips fenced code blocks and inline code
+- Humanizes file paths and technical identifiers (camelCase, kebab-case, snake_case)
+- Converts markdown tables to prose
+- Removes images, bold/italic markers, link URLs
+
+## Claude Code Integration
+
+The `ingest_claude_code.sh` hook:
+
+- Reads the hook payload from stdin (contains `transcript_path` and `session_id`)
+- Waits briefly for the transcript to flush the final assistant message
+- Parses the JSONL transcript in reverse to find the latest assistant text
+- Deduplicates by MD5 hash to avoid re-queuing the same response
+- Looks up the session name from `~/.claude/sessions/` for display
+- Queues with `source: "claude-code"` for identification
+
+## Notification Sounds
+
+The tool can generate dynamic notification sounds via the ElevenLabs Sound Effects API:
+
+- **Random SFX mode**: Each notification plays a random pre-generated sound effect
+- **Categories**: boom, bram, fantasy, impact, weapon (configurable)
+- **Cache**: 10 sounds stored in `~/.cursor/tts/sounds/default/`
+- **Generate**: From the menu: "Generate New SFX" or "Regenerate All SFX"
+- **Themes**: Sound directory structured as `sounds/<theme>/` for future theme support (titanfall, tmnt, halo)
+
+## File Layout
+
+```
+~/.cursor/tts/
+  .env                              # API keys (ELEVENLABS_API_KEY, GEMINI_API_KEY)
+  config.json                       # voice, speed, notification settings
+  session_voices.json               # per-session voice overrides
+  queue/                            # unplayed response JSON files
+  played/                           # responses after playback
+  sounds/default/                   # cached notification SFX (.mp3)
+  cache/                            # voices.json, credits.json
+  icons/                            # TMNT menu bar and notification icons
+  scripts/                          # all scripts (deployed from repo)
+  logs/                             # hook.log
+  .processing/                      # playback processing markers (prevents double-play)
+```
 
 ## Manual Enqueue
 
-If listening was paused when a response came in, or you want to queue arbitrary text, use the `enqueue_manual.sh` script. It reads text from stdin and creates a queue entry that shows up in the SwiftBar menu like any hook-captured response.
-
 ```bash
-# Queue whatever is on your clipboard (e.g. copy an assistant reply, then run this)
+# Queue clipboard contents
 pbpaste | ~/.cursor/tts/scripts/enqueue_manual.sh "My thread title"
 
 # Pipe from a file
 ~/.cursor/tts/scripts/enqueue_manual.sh "Review notes" < ~/Desktop/missed-reply.md
 
-# Quick inline text
+# Inline text
 echo "Remember to update the API keys" | ~/.cursor/tts/scripts/enqueue_manual.sh
 ```
 
-The first argument is an optional title shown in the menu bar dropdown (defaults to "Manual enqueue"). The script writes a JSON file to `~/.cursor/tts/queue/` with the same structure the hook produces, so playback, text cleaning, and queue management all work identically.
-
 ### Raycast Script Commands
 
-Three optional Raycast scripts live in `scripts/raycast/` (same metadata style as other projects: `@raycast.schemaVersion`, title, packageName **Cursor Read Aloud**). Add the repo folder (or symlink these `.sh` files) under **Raycast → Extensions → Script Commands** so they appear in the Raycast root search.
+Optional Raycast scripts in `scripts/raycast/`:
 
-| Script                            | What it does                                                                      |
-| --------------------------------- | --------------------------------------------------------------------------------- |
-| `enqueue-read-aloud-clipboard.sh` | `pbpaste` → `enqueue_manual.sh` with optional thread title (silent HUD).          |
-| `enqueue-read-aloud-file.sh`      | First argument: file path; second: optional title. Reads the file into the queue. |
-| `enqueue-read-aloud-text.sh`      | First argument: short inline text; second: optional title.                        |
-
-All three expect `~/.cursor/tts/scripts/enqueue_manual.sh` to exist (run `scripts/setup.sh` once).
-
-## Text Cleaning
-
-Before synthesis, responses are cleaned to remove non-prose content:
-
-- Fenced code blocks (triple backticks)
-- Inline code tokens humanized (e.g. `src/lib/document-prompts.ts` → "src lib document prompts T S")
-- camelCase, kebab-case, snake_case split into words; file extensions spoken naturally
-- Code-like lines (imports, shell commands, high symbol density)
-- Markdown images
-- Markdown tables are converted to prose
-- Headers become sentences with pauses
-- Bold/italic markers stripped, link URLs removed (text kept)
-
-## File Layout
-
-```
-~/.cursor/
-  hooks.json                          # afterAgentResponse hook registration
-  tts/
-    config.json                       # voice, speed, port settings
-    models/                           # Piper ONNX model files
-    queue/                            # unplayed response JSON files
-    played/                           # responses after playback
-    scripts/                          # ingest, play, stop, clean, helpers
-    logs/                             # piper-server.log, hook.log
-```
+| Script | What it does |
+|--------|-------------|
+| `start-cursor-read-aloud.sh` | Start SwiftBar and enable listening |
+| `enqueue-read-aloud-clipboard.sh` | Queue clipboard contents |
+| `enqueue-read-aloud-file.sh` | Queue a file's contents |
+| `enqueue-read-aloud-text.sh` | Queue inline text |
 
 ## Troubleshooting
 
-- **No audio**: Check `~/.cursor/tts/logs/hook.log` and `piper-server.log`
-- **Piper not starting**: Check `~/.cursor/tts/logs/piper-server.log`. To run the same process as LaunchAgent: `~/.cursor/tts/scripts/piper_http_launch.sh`
-- **Hook not firing**: Verify `~/.cursor/hooks.json` exists and Cursor is restarted
+- **No audio**: Check `~/.cursor/tts/logs/hook.log` for ElevenLabs API errors
+- **Robotic speech**: Ensure `GEMINI_API_KEY` is set — without it, text goes through basic local cleaning instead of Gemini's natural speech conversion
+- **Hook not firing (Cursor)**: Verify `~/.cursor/hooks.json` exists and Cursor is restarted
+- **Hook not firing (Claude Code)**: Check `~/.claude/settings.json` has the Stop hook. Start a new session after changing hook config.
+- **Notification one message behind**: The `sleep 2` in `ingest_claude_code.sh` handles transcript flush timing. If still stale, increase the delay.
 - **SwiftBar not showing**: Ensure SwiftBar is running and the plugin is in the correct plugins directory
-- **Notifications not appearing**: Confirm **Notifications: On** in the menu. Check `hook.log` for lines starting with `notify:` to see which delivery method ran and whether it succeeded.
-- **Notification flashes away too fast**: Open **System Settings → Notifications → terminal-notifier** (or **Script Editor** for osascript) and switch Alert Style to **Persistent**.
-- **terminal-notifier shows nothing (Sequoia / macOS 15+)**: The Homebrew version silently fails on newer macOS (exits 0, no banner). Build from source with a bumped deployment target — see [this GitHub issue](https://github.com/julienXX/terminal-notifier/issues/312). Quick steps: `cd /tmp && git clone https://github.com/julienXX/terminal-notifier.git && cd terminal-notifier`, then `sed -i '' 's/MACOSX_DEPLOYMENT_TARGET = 10.10/MACOSX_DEPLOYMENT_TARGET = 15.0/g' "Terminal Notifier.xcodeproj/project.pbxproj"`, `xcodebuild -project "Terminal Notifier.xcodeproj" -configuration Release -arch arm64`, and `cp -R build/Release/terminal-notifier.app /Applications/`. The script checks `/Applications/terminal-notifier.app` first, then `PATH`, then osascript.
+- **SSL errors**: The scripts use `curl` for all API calls to avoid Python SSL certificate issues on macOS
+- **Speed not working**: Speeds above 1.2x use `afplay -r` rate adjustment on top of ElevenLabs' native speed parameter
+- **Double playback**: Processing markers in `.processing/` prevent the same message from being synthesized twice when clicking both notification and menu item
+
+### Custom Notifier App
+
+For a custom notification icon on the left side of banners:
+
+1. Install terminal-notifier (`brew install --cask terminal-notifier`)
+2. Run `bash scripts/build_read_aloud_notifier_app.sh`
+3. Set `"terminal_notifier_app"` in config to the built `.app` path
+4. First launch: right-click → Open if macOS blocks it
+
+For macOS 15+ (Sequoia), you may need to build terminal-notifier from source with a bumped deployment target — see [this issue](https://github.com/julienXX/terminal-notifier/issues/312).

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cursor-read-aloud.5s.sh — SwiftBar plugin for Cursor TTS playback.
+# cursor-read-aloud.5s.sh — SwiftBar plugin for Cursor/Claude Code TTS playback.
 # Filename convention: <name>.<refresh_interval>.<ext>
 # Refreshes every 5 seconds.
 #
@@ -24,14 +24,26 @@ fi
 
 # ── Read config ───────────────────────────────────────────────────
 DEFAULT_SPEED="1.25"
-CURRENT_MODEL="en_US-libritts_r-medium"
+VOICE_ID=""
 NOTIFICATIONS_ON=0
-NOTIFICATION_SOUND="default"
+NOTIFICATION_SOUND="random_sfx"
+STREAMING_ON=0
 if [ -f "$CONFIG" ]; then
     DEFAULT_SPEED=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('default_speed', 1.25))" 2>/dev/null || echo "1.25")
-    CURRENT_MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('model', 'en_US-libritts_r-medium'))" 2>/dev/null || echo "en_US-libritts_r-medium")
+    VOICE_ID=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('elevenlabs_voice_id', ''))" 2>/dev/null || echo "")
     NOTIFICATIONS_ON=$(python3 -c "import json; print(1 if json.load(open('$CONFIG')).get('notifications_enabled') is True else 0)" 2>/dev/null || echo "0")
-    NOTIFICATION_SOUND=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('notification_sound', 'default'))" 2>/dev/null || echo "default")
+    NOTIFICATION_SOUND=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('notification_sound', 'random_sfx'))" 2>/dev/null || echo "random_sfx")
+    STREAMING_ON=$(python3 -c "import json; print(1 if json.load(open('$CONFIG')).get('streaming_enabled') is True else 0)" 2>/dev/null || echo "0")
+fi
+
+# ── Check TTS server status ──────────────────────────────────────
+DAEMON_RUNNING=false
+DAEMON_PID_FILE="$TTS_DIR/.tts-server.pid"
+if [ -f "$DAEMON_PID_FILE" ]; then
+    DAEMON_PID=$(cat "$DAEMON_PID_FILE" 2>/dev/null || true)
+    if [ -n "$DAEMON_PID" ] && kill -0 "$DAEMON_PID" 2>/dev/null; then
+        DAEMON_RUNNING=true
+    fi
 fi
 
 # ── Count unplayed items ──────────────────────────────────────────
@@ -90,8 +102,6 @@ if [ -n "$BAR_SRC" ] && [ -f "$BAR_SRC" ]; then
 fi
 
 # ── Title bar ─────────────────────────────────────────────────────
-# SwiftBar often does not show badge= when the header is image-only; put the count in
-# the title so it renders beside the icon (same as the old emoji + number layout).
 if [ -n "$BAR_B64" ]; then
     if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then
         echo "${QUEUE_COUNT} | image=${BAR_B64} dropdown=false"
@@ -118,6 +128,7 @@ echo "---"
 
 # ── Play latest (SwiftBar: ctrl+shift+p; Hammerspoon: ctrl+Play) ─
 echo "Play Latest | bash=$SCRIPTS_DIR/play_latest.sh terminal=false refresh=true shortcut=ctrl+shift+p"
+echo "Replay Last | bash=$SCRIPTS_DIR/replay.sh terminal=false refresh=true shortcut=ctrl+shift+r"
 
 echo "---"
 
@@ -155,6 +166,8 @@ fi
 # ── Agent Messages ──────────────────────────────────────────────
 echo "Agent Messages | disabled=true size=12"
 export QUEUE_DIR SCRIPTS_DIR
+PROCESSING_DIR="$TTS_DIR/.processing"
+export PROCESSING_DIR
 if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null && [ "$QUEUE_COUNT" -ne 0 ]; then
     python3 - <<'PY'
 import base64
@@ -164,6 +177,8 @@ from collections import defaultdict
 
 queue_dir = os.environ["QUEUE_DIR"]
 scripts_dir = os.environ["SCRIPTS_DIR"]
+processing_dir = os.environ.get("PROCESSING_DIR", "")
+sessions_dir = os.path.expanduser("~/.claude/sessions")
 
 def load_json(path):
     try:
@@ -171,6 +186,43 @@ def load_json(path):
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
+
+def is_processing(queue_path):
+    if not processing_dir:
+        return False
+    marker = os.path.join(processing_dir, os.path.basename(queue_path))
+    if not os.path.isfile(marker):
+        return False
+    try:
+        pid = open(marker).read().strip()
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        try:
+            os.unlink(marker)
+        except OSError:
+            pass
+        return False
+
+def lookup_session_name(session_id):
+    """Look up session name from ~/.claude/sessions/*.json."""
+    if not session_id or not os.path.isdir(sessions_dir):
+        return None
+    try:
+        for fname in os.listdir(sessions_dir):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(sessions_dir, fname)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    s = json.load(f)
+                if s.get("sessionId") == session_id and s.get("name"):
+                    return s["name"]
+            except (OSError, json.JSONDecodeError):
+                continue
+    except OSError:
+        pass
+    return None
 
 def preview_for(path, data):
     title = (data.get("thread_title") or "").strip()
@@ -194,7 +246,6 @@ try:
 except OSError:
     paths = []
 
-# Newest file first (epoch prefix in filename)
 paths.sort(key=lambda p: os.path.basename(p), reverse=True)
 
 groups = defaultdict(list)
@@ -206,7 +257,6 @@ for p in paths:
     key = cid if cid else (d.get("thread_title") or "unknown")
     groups[key].append((p, d))
 
-# Sort groups by newest message (max basename / path order)
 def group_sort_key(items):
     return max((os.path.basename(i[0]) for i in items), default="")
 
@@ -216,21 +266,28 @@ for grp_key, items in group_list:
     items.sort(key=lambda x: os.path.basename(x[0]), reverse=True)
     first = items[0][1]
     label = (first.get("thread_title") or "").strip()
-    if not label:
-        label = str(first.get("conversation_id") or "Chat")[:16]
+    cid = (first.get("conversation_id") or "").strip()
+    if not label or label == "Claude Code":
+        session_name = lookup_session_name(cid)
+        if session_name:
+            label = session_name
+        elif not label:
+            label = str(cid or "Chat")[:16]
     if len(label) > 32:
         label = label[:30] + "..."
     n = len(items)
-    # Zero-padded width so counts read cleanly: (01) … (02) … (15) …
     count_prefix = f"({n:02d}) "
     print(f"{count_prefix}{label} | disabled=true")
     for path, data in items:
+        processing = is_processing(path)
         prev = preview_for(path, data)
-        # SwiftBar: escape pipe in menu text? rare in previews
         prev = prev.replace("|", "/")
-        print(
-            f"--{prev} | bash={scripts_dir}/play.sh param1={path} terminal=false refresh=true"
-        )
+        if processing:
+            print(f"--⏳ {prev} | disabled=true")
+        else:
+            print(
+                f"--{prev} | bash={scripts_dir}/play_node.sh param1={path} terminal=false refresh=true"
+            )
     token = base64.urlsafe_b64encode(
         json.dumps({"key": grp_key}, separators=(",", ":")).encode("utf-8")
     ).decode("ascii").rstrip("=")
@@ -245,47 +302,258 @@ fi
 
 echo "---"
 
+# ── Recent Playback (replay saved audio) ─────────────────────────
+REPLAY_DIR="$TTS_DIR/replay"
+if [ -d "$REPLAY_DIR" ]; then
+    REPLAY_COUNT=$(find "$REPLAY_DIR" -name '*.mp3' -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$REPLAY_COUNT" -gt 0 ] 2>/dev/null && [ "$REPLAY_COUNT" -ne 0 ]; then
+        echo "Recent Playback | disabled=true size=12"
+        python3 - "$REPLAY_DIR" "$SCRIPTS_DIR" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+replay_dir = sys.argv[1]
+scripts_dir = sys.argv[2]
+files = sorted(
+    [f for f in os.listdir(replay_dir) if f.endswith(".mp3")],
+    reverse=True,
+)[:10]
+
+for f in files:
+    path = os.path.join(replay_dir, f)
+    meta_path = path.replace(".mp3", ".json")
+    size_kb = os.path.getsize(path) / 1024
+
+    meta = {}
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path) as mf:
+                meta = json.load(mf)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Use file mtime for local time (always correct timezone)
+    mtime = os.path.getmtime(path)
+    local_dt = datetime.fromtimestamp(mtime)
+    hour = local_dt.hour % 12 or 12
+    ampm = "am" if local_dt.hour < 12 else "pm"
+    time_str = f"{hour}:{local_dt.minute:02d}{ampm}"
+
+    # Build label from metadata
+    parts = []
+    session = meta.get("sessionName") or meta.get("sessionId", "")[:12]
+    character = meta.get("character")
+    source = meta.get("source", "")
+    preview = meta.get("textPreview", "")
+
+    if session:
+        parts.append(f"[{session}]")
+    if character:
+        parts.append(character)
+    elif source == "dynamic-response":
+        parts.append("prompt ack")
+    elif source == "ask-user":
+        parts.append("question")
+    elif source == "queue":
+        parts.append("response")
+
+    if preview:
+        prev = preview[:50].replace("\n", " ").strip()
+        if prev:
+            parts.append(f"— {prev}...")
+
+    label = " ".join(parts) if parts else f.replace(".mp3", "")
+    display = f"{time_str} {label}"
+    display = display.replace("|", "/")
+    if len(display) > 70:
+        display = display[:68] + ".."
+    print(f"{display} | bash=/usr/bin/afplay param1={path} terminal=false size=12")
+PY
+        echo "---"
+    fi
+fi
+
 # ── Settings (voice, speed, notifications) ────────────────────────
 echo "Settings | disabled=true size=12"
 
-VOICE_IDS=(
-    en_US-libritts_r-medium
-    en_US-norman-medium
-    en_GB-northern_english_male-medium
-    en_US-ryan-high
-)
-VOICE_NAMES=(
-    "LibriTTS R (US)"
-    "Norman (US)"
-    "Northern English (male)"
-    "Ryan (US, high)"
-)
-VOICE_DISPLAY="$CURRENT_MODEL"
-i=0
-while [ "$i" -lt "${#VOICE_IDS[@]}" ]; do
-    if [ "${VOICE_IDS[$i]}" = "$CURRENT_MODEL" ]; then
-        VOICE_DISPLAY="${VOICE_NAMES[$i]}"
-        break
-    fi
-    i=$((i + 1))
-done
+# ── Voice: ElevenLabs voices from API cache ───────────────────────
+export VOICE_ID_CURRENT="$VOICE_ID"
+export SCRIPTS_DIR_EXPORT="$SCRIPTS_DIR"
+VOICE_DISPLAY="$VOICE_ID"
+if [ -z "$VOICE_ID" ]; then
+    VOICE_DISPLAY="Not set"
+fi
+
+# Try to get voice name from cache
+if [ -n "$VOICE_ID" ] && [ -f "$TTS_DIR/cache/voices.json" ]; then
+    VOICE_NAME=$(python3 -c "
+import json, sys
+vid = sys.argv[1]
+try:
+    with open(sys.argv[2]) as f:
+        voices = json.load(f)
+    for v in voices:
+        if v.get('voice_id') == vid:
+            print(v.get('name', vid))
+            break
+    else:
+        print(vid[:16] + '...' if len(vid) > 16 else vid)
+except Exception:
+    print(vid[:16] + '...' if len(vid) > 16 else vid)
+" "$VOICE_ID" "$TTS_DIR/cache/voices.json" 2>/dev/null) || VOICE_NAME="$VOICE_ID"
+    VOICE_DISPLAY="$VOICE_NAME"
+fi
 
 echo "Voice: ${VOICE_DISPLAY}"
-i=0
-while [ "$i" -lt "${#VOICE_IDS[@]}" ]; do
-    vid="${VOICE_IDS[$i]}"
-    vname="${VOICE_NAMES[$i]}"
-    if [ "$vid" = "$CURRENT_MODEL" ]; then
-        LABEL="✓ ${vname}"
-    else
-        LABEL="  ${vname}"
-    fi
-    echo "--${LABEL} | bash=$SCRIPTS_DIR/set_voice.sh param1=${vid} terminal=false refresh=true"
-    i=$((i + 1))
-done
+
+# Voice submenu from cached ElevenLabs voices
+python3 - <<'PY'
+import json
+import os
+from collections import defaultdict
+
+scripts_dir = os.environ.get("SCRIPTS_DIR_EXPORT", "")
+current_vid = os.environ.get("VOICE_ID_CURRENT", "")
+tts_dir = os.path.expanduser("~/.cursor/tts")
+cache_file = os.path.join(tts_dir, "cache", "voices.json")
+
+voices = []
+if os.path.isfile(cache_file):
+    try:
+        with open(cache_file, encoding="utf-8") as f:
+            voices = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        pass
+
+if not voices:
+    print(f"--No voices cached | disabled=true")
+    print(f"--Refresh Voices | bash={scripts_dir}/fetch_voices.py param1=--refresh terminal=false refresh=true")
+else:
+    custom_categories = {"cloned", "generated", "professional"}
+    custom = [v for v in voices if v.get("category", "").lower() in custom_categories]
+    premade = [v for v in voices if v.get("category", "").lower() not in custom_categories]
+
+    def print_voice(v):
+        vid = v.get("voice_id", "")
+        name = v.get("name", "Unknown")
+        labels = v.get("labels", {})
+        accent = labels.get("accent", "")
+        gender = labels.get("gender", "")
+        suffix_parts = [p for p in [gender, accent] if p]
+        suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+        mark = "✓ " if vid == current_vid else "  "
+        display = f"{name}{suffix}".replace("|", "/")
+        if len(display) > 40:
+            display = display[:38] + ".."
+        print(f"--{mark}{display} | bash={scripts_dir}/set_voice.sh param1={vid} terminal=false refresh=true")
+
+    if custom:
+        print("--My Voices | disabled=true size=11")
+        for v in custom:
+            print_voice(v)
+    if custom and premade:
+        print("----- | disabled=true size=11")
+    if premade:
+        print("--Library Voices | disabled=true size=11")
+        for v in premade:
+            print_voice(v)
+
+    print("----- | disabled=true size=11")
+    print(f"--Refresh Voices | bash={scripts_dir}/fetch_voices.py param1=--refresh terminal=false refresh=true")
+
+print(f"--Paste Voice ID... | bash={scripts_dir}/paste_voice_id.sh terminal=false refresh=true")
+PY
+
+# ── Per-session voice overrides ──────────────────────────────────
+echo "Session Voices"
+python3 - <<'PY'
+import json
+import os
+
+tts_dir = os.path.expanduser("~/.cursor/tts")
+scripts_dir = os.path.join(tts_dir, "scripts")
+sessions_dir = os.path.expanduser("~/.claude/sessions")
+session_voices_path = os.path.join(tts_dir, "session_voices.json")
+cache_file = os.path.join(tts_dir, "cache", "voices.json")
+
+session_voices = {}
+if os.path.isfile(session_voices_path):
+    try:
+        with open(session_voices_path) as f:
+            session_voices = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        pass
+
+voices = []
+if os.path.isfile(cache_file):
+    try:
+        with open(cache_file) as f:
+            voices = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        pass
+
+voice_names = {v.get("voice_id", ""): v.get("name", "?") for v in voices}
+
+muted_sessions = []
+muted_path = os.path.join(tts_dir, "muted_sessions.json")
+if os.path.isfile(muted_path):
+    try:
+        with open(muted_path) as f:
+            muted_sessions = json.load(f)
+        if not isinstance(muted_sessions, list):
+            muted_sessions = []
+    except (OSError, json.JSONDecodeError):
+        pass
+
+active_sessions = []
+if os.path.isdir(sessions_dir):
+    try:
+        for fname in os.listdir(sessions_dir):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(sessions_dir, fname)
+            try:
+                with open(path) as f:
+                    s = json.load(f)
+                sid = s.get("sessionId", "")
+                name = s.get("name") or s.get("sessionId", "")[:12]
+                if sid:
+                    active_sessions.append((sid, name, s.get("cwd", "")))
+            except (OSError, json.JSONDecodeError):
+                continue
+    except OSError:
+        pass
+
+if not active_sessions:
+    print("--No active sessions | disabled=true")
+else:
+    for sid, name, cwd in sorted(active_sessions, key=lambda x: x[1]):
+        current_voice = session_voices.get(sid, "")
+        voice_label = voice_names.get(current_voice, "default") if current_voice else "default"
+        is_muted = sid in muted_sessions
+        display_name = name.replace("|", "/")
+        if len(display_name) > 24:
+            display_name = display_name[:22] + ".."
+        mute_indicator = " [muted]" if is_muted else ""
+        print(f"--{display_name}: {voice_label}{mute_indicator}")
+
+        if is_muted:
+            print(f"----Unmute | bash={scripts_dir}/set_session_mute.sh param1={sid} param2=unmute terminal=false refresh=true")
+        else:
+            print(f"----Mute | bash={scripts_dir}/set_session_mute.sh param1={sid} param2=mute terminal=false refresh=true")
+        print("---- | disabled=true")
+        print(f"----Use Default | bash={scripts_dir}/set_session_voice.sh param1={sid} param2=--clear terminal=false refresh=true")
+        for v in voices:
+            vid = v.get("voice_id", "")
+            vname = v.get("name", "Unknown").replace("|", "/")
+            mark = "✓ " if vid == current_voice else "  "
+            print(f"----{mark}{vname} | bash={scripts_dir}/set_session_voice.sh param1={sid} param2={vid} terminal=false refresh=true")
+PY
 
 echo "Speed: ${DEFAULT_SPEED}x"
-SPEEDS=("0.75" "1.0" "1.25" "1.5" "2.0")
+SPEEDS=("0.75" "1.0" "1.1" "1.15" "1.2" "1.25" "1.5" "2.0")
 for spd in "${SPEEDS[@]}"; do
     if [ "$spd" = "$DEFAULT_SPEED" ]; then
         LABEL="✓ ${spd}x"
@@ -301,24 +569,39 @@ else
     echo "Notifications: Off | bash=$SCRIPTS_DIR/set_notifications.sh param1=on terminal=false refresh=true"
 fi
 
+if [ "$STREAMING_ON" = 1 ]; then
+    if [ "$DAEMON_RUNNING" = true ]; then
+        echo "Streaming: On (server running) | bash=$SCRIPTS_DIR/set_streaming.sh param1=off terminal=false refresh=true"
+    else
+        echo "Streaming: On (server stopped) | bash=$SCRIPTS_DIR/set_streaming.sh param1=on terminal=false refresh=true"
+    fi
+else
+    echo "Streaming: Off | bash=$SCRIPTS_DIR/set_streaming.sh param1=on terminal=false refresh=true"
+fi
+
 case "$NOTIFICATION_SOUND" in
     [Nn][Oo][Nn][Ee]) NOTIFICATION_SOUND_LABEL="None (silent)" ;;
+    random_sfx) NOTIFICATION_SOUND_LABEL="Random SFX" ;;
     *) NOTIFICATION_SOUND_LABEL="$NOTIFICATION_SOUND" ;;
 esac
 echo "Notification sound: ${NOTIFICATION_SOUND_LABEL}"
 export NOTIFICATION_SOUND_MENU_SCRIPTS="$SCRIPTS_DIR"
 export NOTIFICATION_SOUND_MENU_CURRENT="$NOTIFICATION_SOUND"
 python3 - <<'PY'
-"""One submenu: built-in alert names, optional '---' row, then ~/Library/Sounds (cheap: one readdir per refresh)."""
+"""Notification sound submenu: random sfx, built-in alerts, custom ~/Library/Sounds."""
 import base64
 import os
 
 scripts = os.environ["NOTIFICATION_SOUND_MENU_SCRIPTS"]
-current = os.environ.get("NOTIFICATION_SOUND_MENU_CURRENT", "default").strip()
+current = os.environ.get("NOTIFICATION_SOUND_MENU_CURRENT", "random_sfx").strip()
 
-builtins = [
+options = [
+    ("random_sfx", "Random SFX (ElevenLabs)"),
     ("default", "Default"),
     ("none", "None (silent)"),
+]
+
+builtins = [
     ("Glass", "Glass"),
     ("Ping", "Ping"),
     ("Tink", "Tink"),
@@ -336,16 +619,18 @@ builtins = [
 ]
 
 def selected(sid: str) -> bool:
-    if sid == "default":
-        return current.lower() == "default"
-    if sid == "none":
-        return current.lower() == "none"
-    return sid == current or sid.lower() == current.lower()
-
+    return sid.lower() == current.lower()
 
 def enc(s: str) -> str:
     return "B64:" + base64.urlsafe_b64encode(s.encode("utf-8")).decode("ascii").rstrip("=")
 
+for sid, slab in options:
+    mark = "✓ " if selected(sid) else "  "
+    print(
+        f"--{mark}{slab} | bash={scripts}/set_notification_sound.sh param1={sid} terminal=false refresh=true"
+    )
+
+print("----- | disabled=true size=11")
 
 builtins_lower = {sid.lower() for sid, _ in builtins}
 for sid, slab in builtins:
@@ -373,7 +658,6 @@ if os.path.isdir(custom_dir):
         pass
 
 if items:
-    # Submenu row titled exactly "---" (leading "--" is SwiftBar submenu marker + "---")
     print("----- | disabled=true size=11")
     cur_lower = current.lower()
     for stem in items:
@@ -383,7 +667,47 @@ if items:
         print(
             f"--{mark}{display} | bash={scripts}/set_notification_sound.sh param1={enc(stem)} terminal=false refresh=true"
         )
+
+# Generate SFX option
+tts_dir = os.path.expanduser("~/.cursor/tts")
+sfx_dir = os.path.join(tts_dir, "sounds", "default")
+sfx_count = 0
+if os.path.isdir(sfx_dir):
+    sfx_count = len([f for f in os.listdir(sfx_dir) if f.endswith(".mp3")])
+print("----- | disabled=true size=11")
+print(f"--Generate New SFX ({sfx_count} cached) | bash={scripts}/generate_sfx.sh terminal=false refresh=true")
+print(f"--Regenerate All SFX | bash={scripts}/generate_sfx.sh param1=--force terminal=false refresh=true")
 PY
+
+echo "---"
+
+# ── ElevenLabs ──────────────────────────────────────────────────
+echo "ElevenLabs | disabled=true size=12"
+CREDITS_JSON=$("$SCRIPTS_DIR/fetch_credits.sh" 2>/dev/null || echo '{}')
+python3 - "$CREDITS_JSON" <<'PY'
+import json, sys
+from datetime import datetime
+try:
+    data = json.loads(sys.argv[1])
+except (json.JSONDecodeError, IndexError):
+    data = {}
+if data.get("error"):
+    print(f"Credits: unavailable | disabled=true")
+else:
+    used = data.get("character_count", 0)
+    limit = data.get("character_limit", 0)
+    remaining = limit - used
+    tier = data.get("tier", "unknown").title()
+    pct = int((used / limit * 100)) if limit > 0 else 0
+    print(f"Plan: {tier} | disabled=true")
+    print(f"Used: {used:,} / {limit:,} ({pct}%) | disabled=true")
+    print(f"Remaining: {remaining:,} | disabled=true")
+    reset = data.get("next_reset", 0)
+    if reset > 0:
+        dt = datetime.fromtimestamp(reset)
+        print(f"Resets: {dt.strftime('%b %d')} | disabled=true")
+PY
+echo "Refresh Credits | bash=$SCRIPTS_DIR/fetch_credits.sh param1=--refresh terminal=false refresh=true"
 
 echo "---"
 
