@@ -7,9 +7,12 @@ A macOS menu bar tool that reads AI coding agent responses aloud using [ElevenLa
 1. A hook captures each assistant reply and queues it as a JSON file:
    - **Cursor**: `afterAgentResponse` hook in `~/.cursor/hooks.json`
    - **Claude Code**: `Stop` hook in `~/.claude/settings.json` (reads transcript JSONL)
-2. A **SwiftBar** menu bar plugin lists queued responses grouped by session/thread with playback controls
-3. Text is processed through **Gemini** (converts markdown to natural speech with emotion tags) then synthesized via **ElevenLabs TTS** (eleven_v3 model)
-4. Falls back to macOS `say` if ElevenLabs is unavailable
+2. A Node.js watcher daemon (`tts-server/`) picks up queue files. With **Streaming on** it auto-plays them; with Streaming off they wait for manual play from the menu.
+3. Text is processed through **Gemini** (converts markdown to natural speech with emotion tags, rewritten in the session's character voice) then synthesized via **ElevenLabs TTS** (eleven_v3 model) and streamed to `ffplay`.
+4. A **SwiftBar** menu bar plugin lists queued responses grouped by session/thread with playback controls, voice assignment, and recent-playback replay.
+5. Every playback is saved to `~/.cursor/tts/replay/` (last 20) so any message can be re-heard for free.
+
+Optional extras via Claude Code hooks: **dynamic prompt acknowledgments** (`UserPromptSubmit` → a short in-character "on it!" while the agent works) and **question readouts** (`AskUserQuestion` → the question is paraphrased aloud in character).
 
 ## Prerequisites
 
@@ -39,7 +42,7 @@ This will:
 - Pre-generate notification sound effects via ElevenLabs Sound Effects API
 - Install the Cursor hook (`~/.cursor/hooks.json`)
 
-For **Claude Code** support, add the Stop hook to `~/.claude/settings.json`:
+For **Claude Code** support, add hooks to `~/.claude/settings.json`. `Stop` is the core one (reads the finished response); `UserPromptSubmit` and `AskUserQuestion` are optional (character acks and question readouts):
 
 ```json
 {
@@ -50,7 +53,32 @@ For **Claude Code** support, add the Stop hook to `~/.claude/settings.json`:
           {
             "type": "command",
             "command": "bash",
-            "args": ["/Users/YOU/.cursor/tts/scripts/ingest_claude_code.sh"],
+            "args": ["/Users/YOU/.cursor/tts/scripts/hook_stop.sh"],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["/Users/YOU/.cursor/tts/scripts/hook_prompt.sh"],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["/Users/YOU/.cursor/tts/scripts/hook_ask_user.sh"],
             "async": true
           }
         ]
@@ -68,14 +96,16 @@ Edit `~/.cursor/tts/config.json`:
 {
   "elevenlabs_voice_id": "oFMuHQNZ0Bh0jz5SJXQy",
   "elevenlabs_model_id": "eleven_v3",
-  "gemini_model": "gemini-2.0-flash-lite",
+  "gemini_model": "gemini-3.1-flash-lite",
   "default_speed": 1.25,
+  "streaming_enabled": true,
+  "streaming_session_prefix": "auto",
+  "dynamic_responses": "always",
   "notifications_enabled": true,
   "notification_icon": "~/.cursor/tts/icons/tmnt-notification-queued.png",
   "notification_sender": "",
   "terminal_notifier_app": "",
   "notification_sound": "random_sfx",
-  "sfx_categories": ["boom", "bram", "fantasy", "impact", "weapon"],
   "played_retention_count": 50
 }
 ```
@@ -84,11 +114,13 @@ Edit `~/.cursor/tts/config.json`:
 |-----|-------------|
 | **elevenlabs_voice_id** | Voice ID from your ElevenLabs account. Set via the Voice menu or Paste Voice ID. |
 | **elevenlabs_model_id** | ElevenLabs model (`eleven_v3` recommended). |
-| **gemini_model** | Gemini model for text preprocessing. Falls back to local `clean_text.py` if unavailable. |
-| **default_speed** | Playback speed (0.75x–2.0x). ElevenLabs handles up to 1.2x natively; faster speeds use `afplay` rate adjustment. |
+| **gemini_model** | Gemini model for text preprocessing. Falls back to a local cleaner if unavailable. |
+| **default_speed** | Playback speed (0.75x–2.0x). ElevenLabs handles up to 1.2x natively; faster speeds add an `ffplay` atempo filter on top. |
+| **streaming_enabled** | Auto-play responses as they arrive. When off, responses queue silently for manual play. Takes effect live — no server restart needed. |
+| **streaming_session_prefix** | Prepend the session name to spoken text (`auto` = only when multiple sessions are active, `always`, `never`). |
+| **dynamic_responses** | Prompt acknowledgments: `always` (Gemini-generated, in character), `cached` (free pre-generated phrases), `off`. |
 | **notifications_enabled** | macOS notifications when a reply is queued. Click to play. |
 | **notification_sound** | `random_sfx` (ElevenLabs-generated), `default`, `none`, or any macOS alert sound name. |
-| **sfx_categories** | Categories for generated notification sound effects. |
 | **played_retention_count** | Max played files to keep before auto-cleanup (default 50). |
 
 ## Menu Bar Controls
@@ -96,11 +128,14 @@ Edit `~/.cursor/tts/config.json`:
 | Section | Description |
 |---------|-------------|
 | **Play Latest** | Play the newest queued message (ctrl+shift+p) |
+| **Replay Last** | Re-play the most recent audio for free (ctrl+shift+r) |
 | **Agent Messages** | Queued responses grouped by session. Shows session name for Claude Code, thread title for Cursor. Click to play; items show processing state while generating audio. |
+| **Recent Playback** | Last 20 played messages with session, character, and text preview. Click any to re-hear it — no API cost. |
 | **Voice** | Select from your ElevenLabs voices (My Voices / Library Voices), paste a custom voice ID, or refresh the voice cache. |
 | **Session Voices** | Assign different voices to different Claude Code sessions. Useful for distinguishing multiple concurrent sessions. |
 | **Speed** | Playback speed submenu (0.75x – 2.0x). |
 | **Notifications** | Toggle on/off. |
+| **Streaming** | Toggle auto-play of arriving responses on/off. |
 | **Notification Sound** | Random SFX, built-in macOS sounds, or custom sounds from `~/Library/Sounds`. Generate/regenerate SFX from here. |
 | **ElevenLabs** | Shows your plan, character usage, remaining credits, and reset date. |
 | **Debug / Logs** | Open config or log directory. |
@@ -111,6 +146,7 @@ Edit `~/.cursor/tts/config.json`:
 | Shortcut | Action |
 |----------|--------|
 | **ctrl+shift+p** | Play latest queued message |
+| **ctrl+shift+r** | Replay last played message |
 | **ctrl+shift+space** | Pause / Resume playback |
 
 ## Text Processing Pipeline
@@ -128,32 +164,40 @@ Converts developer-oriented markdown into natural spoken text with ElevenLabs v3
 - Summarizes long lists instead of reading each item
 - Targets under 4000 characters
 
-### 2. Fallback: Local Cleaning (`clean_text.py`)
+### 2. Fallback: Local Cleaning (`fallbackClean` in `tts-server/src/gemini.ts`)
 
-Used when Gemini is unavailable:
+Used when Gemini is unavailable (output capped at 1,200 chars to limit TTS spend on unpolished text):
 
-- Strips fenced code blocks and inline code
+- Strips fenced code blocks, inline code, and code-like lines
 - Humanizes file paths and technical identifiers (camelCase, kebab-case, snake_case)
 - Converts markdown tables to prose
 - Removes images, bold/italic markers, link URLs
 
+A python twin (`clean_text.py`) generates notification previews.
+
+## Character Personas
+
+Each ElevenLabs voice can have a character profile in `tts-server/src/characters.json` (gitignored — copy `characters.example.json`): name, personality, speech style, and example lines. When a session's voice has a profile, Gemini rewrites responses *as that character*, prompt acks are generated in their voice, and question readouts stay in character.
+
 ## Claude Code Integration
 
-The `ingest_claude_code.sh` hook:
+The `Stop` hook (`hook_stop.sh` → `tts-server/src/ingest.ts`):
 
 - Reads the hook payload from stdin (contains `transcript_path` and `session_id`)
-- Waits briefly for the transcript to flush the final assistant message
+- Retries briefly until the transcript flushes the final assistant message
 - Parses the JSONL transcript in reverse to find the latest assistant text
-- Deduplicates by MD5 hash to avoid re-queuing the same response
+- Deduplicates by MD5 hash (per session) to avoid re-queuing the same response
 - Looks up the session name from `~/.claude/sessions/` for display
 - Queues with `source: "claude-code"` for identification
+
+(`ingest_claude_code.sh` is a bash fallback for machines without pnpm.)
 
 ## Notification Sounds
 
 The tool can generate dynamic notification sounds via the ElevenLabs Sound Effects API:
 
 - **Random SFX mode**: Each notification plays a random pre-generated sound effect
-- **Categories**: boom, bram, fantasy, impact, weapon (configurable)
+- **Categories**: boom, bram, fantasy, impact, weapon
 - **Cache**: 10 sounds stored in `~/.cursor/tts/sounds/default/`
 - **Generate**: From the menu: "Generate New SFX" or "Regenerate All SFX"
 - **Themes**: Sound directory structured as `sounds/<theme>/` for future theme support (titanfall, tmnt, halo)
@@ -163,15 +207,20 @@ The tool can generate dynamic notification sounds via the ElevenLabs Sound Effec
 ```
 ~/.cursor/tts/
   .env                              # API keys (ELEVENLABS_API_KEY, GEMINI_API_KEY)
-  config.json                       # voice, speed, notification settings
+  config.json                       # voice, speed, streaming, notification settings
   session_voices.json               # per-session voice overrides
+  muted_sessions.json               # sessions muted from auto-play and acks
   queue/                            # unplayed response JSON files
-  played/                           # responses after playback
+  played/                           # responses after playback (or after synthesis if stopped)
+  failed/                           # responses that errored (invalid JSON, TTS failure)
+  replay/                           # last 20 played mp3s + metadata sidecars
   sounds/default/                   # cached notification SFX (.mp3)
-  cache/                            # voices.json, credits.json
+  sounds/phrases/<voiceId>/         # cached ack phrases per voice
+  cache/                            # voices.json, credits.json, titles/
   icons/                            # TMNT menu bar and notification icons
   scripts/                          # all scripts (deployed from repo)
-  logs/                             # hook.log
+  tts-server/                       # Node.js watcher daemon (synced from repo)
+  logs/                             # hook.log, server.log
   .processing/                      # playback processing markers (prevents double-play)
 ```
 
@@ -205,10 +254,10 @@ Optional Raycast scripts in `scripts/raycast/`:
 - **Robotic speech**: Ensure `GEMINI_API_KEY` is set — without it, text goes through basic local cleaning instead of Gemini's natural speech conversion
 - **Hook not firing (Cursor)**: Verify `~/.cursor/hooks.json` exists and Cursor is restarted
 - **Hook not firing (Claude Code)**: Check `~/.claude/settings.json` has the Stop hook. Start a new session after changing hook config.
-- **Notification one message behind**: The `sleep 2` in `ingest_claude_code.sh` handles transcript flush timing. If still stale, increase the delay.
+- **Notification one message behind**: The ingest retries briefly for transcript flush timing. If still stale, check `hook.log` for what was extracted.
 - **SwiftBar not showing**: Ensure SwiftBar is running and the plugin is in the correct plugins directory
-- **SSL errors**: The scripts use `curl` for all API calls to avoid Python SSL certificate issues on macOS
-- **Speed not working**: Speeds above 1.2x use `afplay -r` rate adjustment on top of ElevenLabs' native speed parameter
+- **Speed not working**: Speeds above 1.2x apply an `ffplay` atempo filter on top of ElevenLabs' native speed parameter
+- **Auto-play when Streaming shows Off**: fixed — the watcher now checks the flag live. If it recurs, check for a second watcher process (`pgrep -fl "src/index.ts"`).
 - **Double playback**: Processing markers in `.processing/` prevent the same message from being synthesized twice when clicking both notification and menu item
 
 ### Custom Notifier App

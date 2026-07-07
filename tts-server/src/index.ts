@@ -79,8 +79,20 @@ function shouldAddPrefix(
   return false;
 }
 
-async function processQueueFile(filePath: string): Promise<void> {
+async function processQueueFile(
+  filePath: string,
+  auto = false
+): Promise<void> {
   const name = basename(filePath);
+
+  // Streaming toggle gates the watcher's auto-play only — manual plays
+  // ("once" mode via Play Latest / menu clicks) always go through. The item
+  // stays in queue/ so it can be played manually later.
+  if (auto && !loadConfig().streaming_enabled) {
+    log("server", `Streaming off — queued without auto-play: ${name}`);
+    return;
+  }
+
   if (!claimProcessing(name)) {
     log("server", `Already claimed by another process: ${name} — skip`);
     return;
@@ -217,7 +229,7 @@ async function drainQueue(): Promise<void> {
   while (queue.length > 0) {
     const next = queue.shift()!;
     if (existsSync(next)) {
-      await processQueueFile(next);
+      await processQueueFile(next, true);
     }
   }
   processing = false;
