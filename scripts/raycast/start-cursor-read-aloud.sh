@@ -8,7 +8,7 @@
 # Optional parameters:
 # @raycast.icon 🐢
 # @raycast.packageName Cursor Read Aloud
-# @raycast.description Runs setup.sh, turns listening on (Piper + hooks path), opens SwiftBar, and launches Hammerspoon if it is not running.
+# @raycast.description Runs setup.sh, turns listening on (ElevenLabs + hooks path), and opens SwiftBar.
 
 # Documentation:
 # @raycast.needsConfirmation false
@@ -41,14 +41,11 @@ else
   echo "Warning: $SET_LISTENING missing after setup."
 fi
 
-if ! pgrep -xq "Hammerspoon" >/dev/null 2>&1; then
-  if open -a Hammerspoon 2>/dev/null; then
-    echo "Opened Hammerspoon."
-  else
-    echo "Hammerspoon not installed or failed to open (optional for media keys)."
-  fi
-else
-  echo "Hammerspoon already running — use Reload Config if setup changed init.lua."
+# Start the TTS server daemon if streaming is enabled
+TTS_SERVER_SH="${HOME}/.cursor/tts/scripts/tts-server.sh"
+STREAMING_ON=$(python3 -c "import json; print(1 if json.load(open('${HOME}/.cursor/tts/config.json')).get('streaming_enabled') else 0)" 2>/dev/null || echo "0")
+if [ "$STREAMING_ON" = "1" ] && [ -x "$TTS_SERVER_SH" ]; then
+  "$TTS_SERVER_SH" start
 fi
 
 if open -a SwiftBar 2>/dev/null; then

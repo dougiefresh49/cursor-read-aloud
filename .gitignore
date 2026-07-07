@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 .cursor/
+.env
+node_modules/
+dist/
+tts-server/src/characters.json
+.antigravitycli/
+.claude/settings.local.json
+other-claude.md
