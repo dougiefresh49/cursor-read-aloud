@@ -129,7 +129,11 @@ function buildInjectionCandidates(): Array<{ label: string; target: string }> {
   const out: Array<{ label: string; target: string }> = [];
   for (const [persona, entry] of Object.entries(loadTeamMap())) {
     if (!entry?.sessionId) continue;
-    out.push({ label: normalizeToken(persona), target: persona });
+    const key = normalizeToken(persona);
+    out.push({ label: key, target: persona });
+    for (const nick of NICKNAMES[key] ?? []) {
+      out.push({ label: normalizeToken(nick), target: persona });
+    }
   }
   return out;
 }
