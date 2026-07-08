@@ -364,17 +364,34 @@ function resolveFloorName(spoken: string, dryRun: boolean): string | null {
   return null;
 }
 
+// Errors are SPOKEN — never read a raw sessionId/UUID aloud. Prefer the
+// session's display name, then a persona name, then a generic phrase.
+function speakableName(target: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(target)) return target; // already a name
+  try {
+    const p = join(STATE_DIR, `${target}.json`);
+    if (existsSync(p)) {
+      const name = JSON.parse(readFileSync(p, "utf-8"))?.name;
+      if (name) return String(name);
+    }
+  } catch {}
+  for (const [persona, entry] of Object.entries(loadTeamMap())) {
+    if (entry?.sessionId === target) return persona;
+  }
+  return "that session";
+}
+
 function execInject(target: string, message: string, dryRun: boolean): number {
   if (dryRun) return dry("inject", [target, message]);
   const r = spawnSync(join(SCRIPTS_DIR, "inject_prompt.sh"), [target, message], {
     stdio: "inherit",
   });
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
-    speak(`Can't reach ${target} — not running in the team room.`);
+    speak(`Can't reach ${speakableName(target)} — not running in the team room.`);
     return 1;
   }
   if (r.status === 3) {
-    speak(`Can't reach ${target} — not running in the team room.`);
+    speak(`Can't reach ${speakableName(target)} — not running in the team room.`);
     return r.status;
   }
   return r.status ?? 1;

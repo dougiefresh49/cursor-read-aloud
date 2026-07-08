@@ -37,12 +37,29 @@ const RECONNECT_MS = 3000;
 // axis noise just produces indices that no button is mapped to → ignored.
 type Edge = "down" | "up";
 
-function makeDiffer(): (buf: Buffer, emit: (edge: Edge, idx: number) => void) => void {
+// Analog axis bytes jitter constantly at idle (127↔128↔129 ADC noise on the
+// DragonRise encoders), which XOR-diffing would read as phantom button edges.
+// So every differ starts with a calibration window: any bit that changes while
+// the device should be untouched is marked noise and masked forever after.
+const CALIBRATION_MS = 1500;
+
+function makeDiffer(
+  onCalibrated?: (noisyCount: number) => void
+): (buf: Buffer, emit: (edge: Edge, idx: number) => void) => void {
   let prev: Buffer | null = null;
+  let calibrateUntil = 0;
+  let calibrated = false;
+  const noise = new Set<number>();
   return (buf, emit) => {
+    const now = Date.now();
     if (!prev) {
       prev = Buffer.from(buf);
+      calibrateUntil = now + CALIBRATION_MS;
       return;
+    }
+    if (!calibrated && now >= calibrateUntil) {
+      calibrated = true;
+      onCalibrated?.(noise.size);
     }
     const len = Math.max(prev.length, buf.length);
     for (let byte = 0; byte < len; byte++) {
@@ -53,7 +70,9 @@ function makeDiffer(): (buf: Buffer, emit: (edge: Edge, idx: number) => void) =>
       for (let bit = 0; bit < 8; bit++) {
         const mask = 1 << bit;
         if (changed & mask) {
-          emit(b & mask ? "down" : "up", byte * 8 + bit);
+          const idx = byte * 8 + bit;
+          if (!calibrated) noise.add(idx);
+          else if (!noise.has(idx)) emit(b & mask ? "down" : "up", idx);
         }
       }
     }
@@ -216,6 +235,23 @@ function characterHold(character: string, phase: "start" | "stop"): void {
     log("hid", `no active session wearing ${character}'s voice — PTT ${phase} ignored`);
     return;
   }
+  // Hold-to-talk means INJECTION, which only works for team.sh (tmux) sessions.
+  // Fail fast with a friendly spoken error — never start recording toward a
+  // session we can't reach, and never speak a raw sessionId aloud.
+  const team = loadTeamMap();
+  const inTeam = Object.values(team).some((e) => e?.sessionId === sid);
+  if (!inTeam) {
+    if (phase === "start") {
+      log("hid", `PTT to ${character} refused — session not in team_map`);
+      try {
+        const child = spawn("say", [
+          `${character} isn't in the team room yet. Launch them with team dot S H first.`,
+        ], { stdio: "ignore" });
+        child.on("error", () => {});
+      } catch {}
+    }
+    return;
+  }
   log("hid", `PTT ${phase} → ${character} (${sid.slice(0, 12)})`);
   runScript("ptt.sh", [phase, sid]);
 }
@@ -305,7 +341,8 @@ function openDevice(): void {
   if (!path) return; // unplugged → silent no-op; the scheduler retries
   try {
     const d = new HID(path);
-    differ = makeDiffer(); // reset baseline so the first report doesn't fire
+    // Reset baseline + recalibrate noise mask so the first report doesn't fire.
+    differ = makeDiffer((n) => log("hid", `calibrated — masked ${n} noisy bit(s)`));
     d.on("data", (buf: Buffer) => safe(() => differ(buf, onEdge)));
     d.on("error", (err: any) => {
       log("hid", `device error: ${err?.message ?? err}`);
@@ -388,7 +425,11 @@ async function learn(): Promise<void> {
   }
 
   const d = new HID(path);
-  const ldiff = makeDiffer();
+  let calibrated = false;
+  const ldiff = makeDiffer((noisy) => {
+    calibrated = true;
+    console.log(`calibrated — masked ${noisy} noisy axis bit(s). Ready!\n`);
+  });
   let onDown: ((idx: number) => void) | null = null;
   d.on("error", (err: any) => {
     console.error(`Device error: ${err?.message ?? err}`);
@@ -441,7 +482,21 @@ async function learn(): Promise<void> {
       };
     });
 
-  console.log("Learn mode — map each physical button to its HID index.\n");
+  console.log("Learn mode — map each physical button to its HID index.");
+  console.log("Calibrating: DON'T touch the buttons or joystick for 2 seconds...");
+  await new Promise<void>((resolve) => {
+    const poll = setInterval(() => {
+      if (calibrated) {
+        clearInterval(poll);
+        resolve();
+      }
+    }, 100);
+    // If the device streams no reports at idle there's nothing to calibrate.
+    setTimeout(() => {
+      clearInterval(poll);
+      resolve();
+    }, 4000);
+  });
   const buttons: Record<string, ArcadeButton> = {};
   for (const spec of LEARN_ORDER) {
     const idx = await waitButton(spec.name);

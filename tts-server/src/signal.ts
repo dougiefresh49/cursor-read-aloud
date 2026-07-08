@@ -1,7 +1,7 @@
 import { loadEnv, lookupSessionName, loadMutedSessions } from "./config.js";
 import { resolveVoiceId } from "./elevenlabs.js";
 import { handleDynamicResponse, handleAskUser } from "./dynamic-response.js";
-import { replayLast } from "./audio.js";
+import { replayLast, stopCurrent } from "./audio.js";
 import { purgeSessionQueue, setSessionState } from "./state.js";
 import { log } from "./logger.js";
 
@@ -39,6 +39,9 @@ if (action === "prompt-submitted") {
 } else if (action === "replay") {
   const nth = parseInt(textArg, 10) || 1;
   log("signal", `Replay request — playing ${nth === 1 ? "last" : `${nth}th from last`} message`);
+  // "Say that again" REPLACES whatever is playing — never talks over it.
+  // This also keeps the playback PID files single-writer so stop.sh works.
+  stopCurrent();
   const code = await replayLast(nth);
   if (code !== 0) log("signal", "Nothing to replay");
 } else {
