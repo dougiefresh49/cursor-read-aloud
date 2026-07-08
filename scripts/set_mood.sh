@@ -5,12 +5,20 @@
 #
 set -euo pipefail
 
-TTS_DIR="$HOME/.cursor/tts"
+TTS_DIR="${TTS_DIR:-$HOME/.cursor/tts}"
 CONFIG="$TTS_DIR/config.json"
 SCRIPTS_DIR="$TTS_DIR/scripts"
+HOLD_ROOM_FILE="$TTS_DIR/.hold-room.json"
 LOG_FILE="$TTS_DIR/logs/hook.log"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] set_mood: $*" >> "$LOG_FILE" 2>/dev/null || true; }
+
+# hold_room.sh owns the playback mode while a hold is active — refuse silently
+# (a mood carries a playback_mode, which would corrupt the hold's restore).
+if [ -f "$HOLD_ROOM_FILE" ] && [ "${CR_HOLD_ROOM:-}" != "1" ]; then
+    log "refused: room is held (hold_room.sh owns the mode)"
+    exit 0
+fi
 
 MOOD="${1:-}"
 case "$MOOD" in

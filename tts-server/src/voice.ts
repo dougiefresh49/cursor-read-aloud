@@ -27,7 +27,10 @@ type Action =
   | { kind: "unmute"; sessionId: string }
   | { kind: "clear"; sessionId: string }
   | { kind: "inject"; target: string; message: string }
-  | { kind: "mood"; preset: string };
+  | { kind: "mood"; preset: string }
+  | { kind: "hold_room"; minutes?: number }
+  | { kind: "release_room" }
+  | { kind: "cancel_inject" };
 
 const FLOOR_EXIT = 10;
 
@@ -338,6 +341,14 @@ export function matchGrammar(text: string): Action | null {
   if (/^(pause|hold on|wait)$/.test(text)) return { kind: "pause" };
   if (/^(resume|continue|keep going)$/.test(text)) return { kind: "pause" };
   if (/^(stop|enough|shut up)$/.test(text)) return { kind: "stop" };
+  if (/^(cancel|cancel that|never ?mind)$/.test(text)) {
+    return { kind: "cancel_inject" };
+  }
+
+  m = text.match(/^hold (?:the )?room(?:\s+for\s+(\d+)\s+minutes?)?$/);
+  if (m) return { kind: "hold_room", minutes: m[1] ? Number(m[1]) : undefined };
+  if (/^(release|open) (?:the )?room$/.test(text)) return { kind: "release_room" };
+
   if (/^(say (that )?again|repeat|again) slower$/.test(text)) {
     return { kind: "replay", speed: 0.85 };
   }
@@ -483,6 +494,20 @@ function executeAction(action: Action, dryRun: boolean): number {
       if (dryRun) return dry("set_mood", [action.preset]);
       runScript("set_mood.sh", [action.preset]);
       return FLOOR_EXIT;
+    case "hold_room": {
+      const args = action.minutes != null ? [String(action.minutes)] : [];
+      if (dryRun) return dry("hold_room", args);
+      runScript("hold_room.sh", args);
+      return FLOOR_EXIT; // stops audio
+    }
+    case "release_room":
+      if (dryRun) return dry("hold_room", ["off"]);
+      runScript("hold_room.sh", ["off"]);
+      return FLOOR_EXIT;
+    case "cancel_inject":
+      if (dryRun) return dry("cancel_inject", []);
+      runScript("cancel_inject.sh", []);
+      return 0;
   }
 }
 

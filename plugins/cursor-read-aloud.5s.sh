@@ -793,6 +793,15 @@ for name in ("focus", "arcade", "quiet", "normal"):
     )
 PY
 
+# ── Hold the Room (panic quiet) ───────────────────────────────────
+HOLD_ROOM_FILE="$TTS_DIR/.hold-room.json"
+if [ -f "$HOLD_ROOM_FILE" ]; then
+    echo "⏸ Room Held | disabled=true"
+    echo "Release the Room | bash=$SCRIPTS_DIR/hold_room.sh param1=off terminal=false refresh=true"
+else
+    echo "Hold the Room | bash=$SCRIPTS_DIR/hold_room.sh terminal=false refresh=true"
+fi
+
 case "$NOTIFICATION_SOUND" in
     [Nn][Oo][Nn][Ee]) NOTIFICATION_SOUND_LABEL="None (silent)" ;;
     random_sfx) NOTIFICATION_SOUND_LABEL="Random SFX" ;;
