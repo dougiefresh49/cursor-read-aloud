@@ -71,7 +71,7 @@ for script in \
     set_session_mute.sh set_session_voice.sh nickname.sh \
     ingest_claude_code.sh fetch_credits.sh \
     ptt.sh voice_ptt.sh \
-    team.sh inject_prompt.sh; do
+    team.sh inject_prompt.sh hold_room.sh cancel_inject.sh; do
     if [ -f "$PROJECT_DIR/scripts/$script" ]; then
         cp "$PROJECT_DIR/scripts/$script" "$TTS_DIR/scripts/$script"
     fi
