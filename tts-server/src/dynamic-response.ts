@@ -122,7 +122,7 @@ export async function handleDynamicResponse(
     const character = getCharacter(voiceId);
 
     if (mode === "cached" || !character || !userPrompt?.trim()) {
-      return await playRandomPhrase(voiceId, ctx);
+      return await playRandomPhrase(voiceId, "ack", ctx);
     }
 
     log("dynamic", `Generating ${character.name} response for prompt (${userPrompt.length} chars)`);
@@ -131,7 +131,7 @@ export async function handleDynamicResponse(
 
     if (!responseText) {
       log("dynamic", "Generation failed — falling back to cached phrase");
-      return await playRandomPhrase(voiceId, ctx);
+      return await playRandomPhrase(voiceId, "ack", ctx);
     }
 
     const meta: ReplayMeta = {
@@ -151,7 +151,7 @@ export async function handleDynamicResponse(
     }
 
     log("dynamic", "Stream failed — falling back to cached phrase");
-    return await playRandomPhrase(voiceId, ctx);
+    return await playRandomPhrase(voiceId, "ack", ctx);
   } finally {
     releaseLock();
   }
