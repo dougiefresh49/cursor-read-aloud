@@ -115,7 +115,11 @@ fi
 SHORT="${SESSION_ID:0:12}"
 SUFFIX="-cc-${SHORT}.json"
 
-mapfile -t QUEUE_FILES < <(
+# bash 3.2 (macOS default) has no mapfile — build the array with a read loop.
+QUEUE_FILES=()
+while IFS= read -r line; do
+    [ -n "$line" ] && QUEUE_FILES+=("$line")
+done < <(
     QUEUE_DIR="$QUEUE_DIR" SUFFIX="$SUFFIX" python3 - <<'PY'
 import os
 import sys
