@@ -206,6 +206,7 @@ export interface ReplayMeta {
   sessionName?: string;
   character?: string;
   textPreview?: string;
+  spokenText?: string;
   timestamp: string;
 }
 

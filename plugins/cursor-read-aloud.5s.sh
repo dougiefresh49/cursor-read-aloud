@@ -494,7 +494,17 @@ if os.path.isdir(replay_dir):
             display = display.replace("|", "/")
             if len(display) > 70:
                 display = display[:68] + ".."
-            print(f"{display} | bash=/usr/bin/afplay param1={path} terminal=false size=12")
+            print(f"{display} | size=12")
+            print(f"--▶ Replay | bash=/usr/bin/afplay param1={path} terminal=false size=12")
+            transcript = meta.get("spokenText") or meta.get("textPreview", "")
+            if transcript:
+                import textwrap
+                wrapped = textwrap.wrap(
+                    transcript.replace("\n", " ").strip(), width=60
+                )
+                for line in wrapped:
+                    safe = line.replace("|", "/")
+                    print(f"--{safe} | disabled=true")
         print("---")
 PY
 
