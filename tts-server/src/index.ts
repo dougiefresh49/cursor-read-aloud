@@ -27,6 +27,7 @@ import {
 } from "./audio.js";
 import { seedStateOnStartup } from "./state.js";
 import { maybeFireDeferredAnnounce } from "./announce.js";
+import { startHid, stopHid } from "./hid.js";
 import { log } from "./logger.js";
 
 loadEnv();
@@ -284,6 +285,10 @@ seedStateOnStartup();
 log("server", `Starting — watching ${QUEUE_DIR}`);
 console.log(`tts-server watching: ${QUEUE_DIR}`);
 
+// Arcade encoder input (hid.ts) — inert unless arcade_enabled. Failure-isolated
+// by construction: a HID fault logs and drops, it never takes down playback.
+if (loadConfig().arcade_enabled) startHid();
+
 const watcher = watch(QUEUE_DIR, {
   ignoreInitial: true,
   awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
@@ -299,6 +304,7 @@ watcher.on("add", (path) => {
 process.on("SIGTERM", () => {
   log("server", "SIGTERM — shutting down");
   watcher.close();
+  stopHid();
   stopCurrent();
   process.exit(0);
 });
@@ -306,6 +312,7 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   log("server", "SIGINT — shutting down");
   watcher.close();
+  stopHid();
   stopCurrent();
   process.exit(0);
 });

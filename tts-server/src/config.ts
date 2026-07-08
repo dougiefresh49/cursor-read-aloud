@@ -23,6 +23,8 @@ export const PROCESSING_DIR = join(TTS_DIR, ".processing");
 export const FAILED_DIR = join(TTS_DIR, "failed");
 // Per-session room state, one file per session (see state.ts).
 export const STATE_DIR = join(TTS_DIR, "state");
+// Arcade encoder button map, written by `tsx src/hid.ts learn` (see hid.ts).
+export const ARCADE_BUTTONS_PATH = join(TTS_DIR, "arcade_buttons.json");
 
 export interface Config {
   elevenlabs_voice_id: string;
@@ -39,6 +41,9 @@ export interface Config {
   // "always" = fresh Gemini-generated ack (default), "cached" = free cached
   // phrase only, "off" = silent. Ask-user question readouts are unaffected.
   dynamic_responses: "always" | "cached" | "off";
+  // Gate the arcade-encoder HID input (hid.ts). Inert until true — the daemon
+  // only opens the device at boot when this is set.
+  arcade_enabled: boolean;
 }
 
 const DEFAULTS: Config = {
@@ -53,6 +58,7 @@ const DEFAULTS: Config = {
   streaming_session_prefix: "auto",
   played_retention_count: 50,
   dynamic_responses: "always",
+  arcade_enabled: false,
 };
 
 let cachedConfig: Config | null = null;
@@ -87,6 +93,52 @@ export function loadSessionVoices(): Record<string, string> {
     return JSON.parse(readFileSync(SESSION_VOICES_PATH, "utf-8"));
   } catch {
     return {};
+  }
+}
+
+// One physical button on the encoder. Keyed by HID bit-index in the map;
+// `name` is the friendly label learn mode assigns, and exactly one of
+// `character` (color buttons → floor grant / PTT for that persona's session)
+// or `action` (global commands) drives dispatch. See hid.ts.
+export interface ArcadeButton {
+  name: string;
+  character?: string;
+  action?: string;
+}
+
+export interface ArcadeButtons {
+  device_hint: string;
+  buttons: Record<string, ArcadeButton>;
+}
+
+// Substring alternation matched against product+manufacturer during device
+// discovery. The Fosiya/DragonRise encoder enumerates as "Generic USB Joystick".
+export const DEFAULT_DEVICE_HINT = "joystick|usb gamepad|generic";
+
+let cachedArcade: ArcadeButtons | null = null;
+let arcadeMtime = 0;
+
+export function loadArcadeButtons(): ArcadeButtons {
+  const fallback: ArcadeButtons = {
+    device_hint: DEFAULT_DEVICE_HINT,
+    buttons: {},
+  };
+  try {
+    const mtime = statSync(ARCADE_BUTTONS_PATH).mtimeMs;
+    if (cachedArcade && mtime === arcadeMtime) return cachedArcade;
+    const raw = JSON.parse(readFileSync(ARCADE_BUTTONS_PATH, "utf-8"));
+    cachedArcade = {
+      device_hint:
+        typeof raw.device_hint === "string" && raw.device_hint.trim()
+          ? raw.device_hint
+          : DEFAULT_DEVICE_HINT,
+      buttons:
+        raw.buttons && typeof raw.buttons === "object" ? raw.buttons : {},
+    };
+    arcadeMtime = mtime;
+    return cachedArcade;
+  } catch {
+    return fallback;
   }
 }
 
