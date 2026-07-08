@@ -584,9 +584,34 @@ button,
   font-size: 10px;
 }
 
+/* State → ring color. Without these every ring stays the --grey default. */
+.dock-agent.state-working { --state: var(--amber); }
+.dock-agent.state-hand_raised { --state: var(--blue); }
+.dock-agent.state-speaking { --state: var(--green); }
+.dock-agent.state-idle { --state: var(--grey); }
+
 .dock-agent.state-hand_raised .dock-ring,
 .dock-agent.state-speaking .dock-ring {
   animation: dock-ring-pulse 1.25s ease-in-out infinite;
+}
+
+/* Update badge: raised-hand / queued count pinned to the avatar's corner. */
+.dock-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  z-index: 2;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #0b1018;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgba(13, 16, 21, 0.9);
 }
 
 .dock-actions {

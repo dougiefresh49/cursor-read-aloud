@@ -222,6 +222,7 @@ function renderDockAgent(agent: AgentView): string {
           <img class="avatar dock-avatar" src="${avatarSrc(agent)}" alt="" />
           <span class="avatar-fallback dock-fallback">${initials(agent.name)}</span>
         </span>
+        ${agent.raisedCount > 0 ? `<span class="dock-badge" title="${agent.raisedCount} update${agent.raisedCount > 1 ? "s" : ""} waiting">${agent.raisedCount}</span>` : ""}
       </button>
       <div class="dock-actions" aria-label="Agent actions">
         <button
