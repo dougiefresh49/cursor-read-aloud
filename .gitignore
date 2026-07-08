@@ -9,3 +9,6 @@ tts-server/src/characters.json
 .antigravitycli/
 .claude/settings.local.json
 other-claude.md
+panel/node_modules
+panel/src-tauri/target
+panel/dist
