@@ -16,6 +16,7 @@ import {
   getActiveSessions,
   lookupSessionName,
 } from "./config.js";
+import { isProcessing } from "./audio.js";
 import { log } from "./logger.js";
 
 // Room state for a single Claude Code session. One JSON file per session at
@@ -138,6 +139,14 @@ export function purgeSessionQueue(sessionId: string): number {
     mkdirSync(PLAYED_DIR, { recursive: true });
     for (const f of readdirSync(QUEUE_DIR)) {
       if (!f.endsWith(suffix)) continue;
+      // A file the daemon has already claimed (live processing marker) may be
+      // mid-Gemini/TTS — moving it out from under the claim would let a stale
+      // dismissed-update path still burn credits. Mirror ingest's supersede
+      // check: leave it, the daemon owns it now.
+      if (isProcessing(f)) {
+        log("state", `Skipping purge of ${f} — mid-synthesis`);
+        continue;
+      }
       try {
         renameSync(join(QUEUE_DIR, f), join(PLAYED_DIR, f));
         moved++;

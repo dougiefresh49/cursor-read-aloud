@@ -3,7 +3,7 @@ import { join } from "path";
 import { pathToFileURL } from "url";
 import { PHRASES_DIR, loadConfig } from "./config.js";
 import { generateTTS } from "./elevenlabs.js";
-import { playMp3Buffer, type PlaybackContext } from "./audio.js";
+import { playMp3Buffer, acquireLock, releaseLock, type PlaybackContext } from "./audio.js";
 import { log } from "./logger.js";
 import { readFileSync } from "fs";
 
@@ -129,7 +129,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.error("Usage: tsx src/phrases.ts play <voiceId> <ack|announce|question>");
       process.exit(1);
     }
-    const played = await playRandomPhrase(voiceId, kind, "meta");
+    // Hold the stream lock across playback so a chime can't talk over a grant or
+    // auto-play that starts at the same instant. Try once (never wait — a chime
+    // is disposable); exit 2 signals the caller the floor was busy so it can
+    // defer the hand instead of playing. Release before exit (process.exit skips
+    // the finally otherwise).
+    if (!acquireLock()) process.exit(2);
+    let played = false;
+    try {
+      played = await playRandomPhrase(voiceId, kind, "meta");
+    } finally {
+      releaseLock();
+    }
     process.exit(played ? 0 : 1);
   }
 

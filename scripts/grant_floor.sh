@@ -146,8 +146,18 @@ fi
 
 if [ "$MODE" = "drain" ]; then
     log "Draining ${#QUEUE_FILES[@]} item(s) for ${SHORT}"
+    last_idx=$(( ${#QUEUE_FILES[@]} - 1 ))
+    idx=0
     for f in "${QUEUE_FILES[@]}"; do
-        "$SCRIPTS_DIR/play_node.sh" "$f"
+        # Suppress the deferred "hands up" nudge between drain items — the floor
+        # isn't free while grant items are still queued. Only the last item lets
+        # index.ts fire it, once, after the backlog is fully drained.
+        if [ "$idx" -lt "$last_idx" ]; then
+            CR_SUPPRESS_DEFERRED=1 "$SCRIPTS_DIR/play_node.sh" "$f"
+        else
+            "$SCRIPTS_DIR/play_node.sh" "$f"
+        fi
+        idx=$(( idx + 1 ))
     done
     exit 0
 fi

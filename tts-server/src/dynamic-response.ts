@@ -14,6 +14,7 @@ import {
 } from "./audio.js";
 import { playRandomPhrase } from "./phrases.js";
 import { setSessionState } from "./state.js";
+import { deferAnnounce } from "./announce.js";
 import { log } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -107,6 +108,13 @@ export async function handleDynamicResponse(
     return false;
   }
 
+  // Paid acks (fresh Gemini + ElevenLabs) only make sense in auto mode, where
+  // the ack plays immediately. In hand-raise modes (announce/silent) audio is
+  // deferred until the floor is granted, so an ack that spent credits now would
+  // be uninvited spend — force the free cached phrase regardless of
+  // dynamic_responses="always". "off" already returned above.
+  const useCached = mode === "cached" || effectivePlaybackMode() !== "auto";
+
   // Acks are disposable: try the lock ONCE (before any Gemini call) and
   // skip entirely if playback is in progress — cheap, and doesn't talk over.
   if (!acquireLock()) {
@@ -122,7 +130,7 @@ export async function handleDynamicResponse(
   try {
     const character = getCharacter(voiceId);
 
-    if (mode === "cached" || !character || !userPrompt?.trim()) {
+    if (useCached || !character || !userPrompt?.trim()) {
       return await playRandomPhrase(voiceId, "ack", ctx);
     }
 
@@ -208,18 +216,36 @@ export async function handleAskUser(
   // Ask-user readouts are session-bound (§2) — attribute to the asking session.
   const ctx: PlaybackContext = sessionId ? { sessionId } : "meta";
 
-  // Announce mode etiquette (§3): questions are the exact uninvited audio (and
-  // credit spend) this mode exists to prevent. Don't synthesize — queue the
-  // question for the normal on-grant path, raise the hand, and sound the cached
-  // "I've got a question" chime. Granting the floor reads it. Auto mode below
+  // Hand-raise etiquette (§3): questions are the exact uninvited audio (and
+  // credit spend) these modes exist to prevent. In every non-auto mode, don't
+  // synthesize — queue the question for the normal on-grant path and raise the
+  // hand. Granting the floor reads it. Announce additionally sounds the free
+  // cached "I've got a question" chime; silent stays quiet. Auto mode below
   // keeps today's immediate readout unchanged.
-  if (effectivePlaybackMode() === "announce") {
+  const playbackMode = effectivePlaybackMode();
+  if (playbackMode !== "auto") {
     if (sessionId) {
       enqueueQuestionFile(sessionId, sessionName, questionText);
       setSessionState(sessionId, "hand_raised");
     }
-    log("dynamic", "Announce mode — question chimed, hand raised, no synthesis");
-    return await playRandomPhrase(voiceId, "question", ctx);
+    if (playbackMode !== "announce") {
+      log("dynamic", `${playbackMode} mode — question queued for grant, hand raised, no chime`);
+      return false;
+    }
+    // The question chime is room-level "meta" (never session-bound — it must not
+    // flip this session's speaking state) and lock-aware: play only while holding
+    // the stream lock so it can't talk over a grant/auto-play, else defer the hand.
+    if (acquireLock()) {
+      try {
+        log("dynamic", "Announce mode — question chimed, hand raised, no synthesis");
+        return await playRandomPhrase(voiceId, "question", "meta");
+      } finally {
+        releaseLock();
+      }
+    }
+    if (sessionId) deferAnnounce(sessionId);
+    log("dynamic", "Announce mode — floor busy, question deferred (hand raised)");
+    return false;
   }
 
   // Question readouts carry real content — wait for the lock rather than skip.

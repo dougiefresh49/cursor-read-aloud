@@ -265,8 +265,12 @@ if (command === "once") {
   }
   await processQueueFile(file);
   // Grant / manual play settled — same deferred-announce check as the daemon
-  // drain, so a hand that deferred while this item played gets its nudge.
-  maybeFireDeferredAnnounce();
+  // drain, so a hand that deferred while this item played gets its nudge. During
+  // a multi-item drain (grant_floor.sh), CR_SUPPRESS_DEFERRED is set on every
+  // item but the last so the nudge doesn't fire between still-queued grant items.
+  if (!process.env.CR_SUPPRESS_DEFERRED) {
+    maybeFireDeferredAnnounce();
+  }
   process.exit(0);
 }
 

@@ -69,33 +69,34 @@ PY
 [ "$MUTED_FLAG" = "1" ] && exit 0
 [ "$VOICE" = "-" ] && exit 0
 
-# Try-once lock check (never wait): floor is busy only if a live pid holds it.
-busy=0
-if [ -f "$LOCK" ]; then
-  pid="$(cat "$LOCK" 2>/dev/null || true)"
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    busy=1
-  fi
-fi
-
-if [ "$busy" = "1" ]; then
-  # Defer: append the sessionId, dedup (grep -qxF against existing lines).
+defer() {
+  # Append the sessionId, dedup (grep -qxF against existing lines).
   touch "$PENDING"
   if ! grep -qxF "$SESSION_ID" "$PENDING" 2>/dev/null; then
     echo "$SESSION_ID" >>"$PENDING"
   fi
   loga "floor busy — deferred ${SESSION_ID:0:12}"
-  exit 0
-fi
+}
 
-# Floor free: play the cached announce phrase; fall back to a legacy SFX when
-# the voice has no announce phrases cached yet. Both are free (no synthesis).
+# Play the cached announce phrase; fall back to a legacy SFX when the voice has
+# no announce phrases cached yet. Both are free (no synthesis). The lock is
+# acquired and held *inside* phrases.ts play (try-once): rc 2 means the floor was
+# busy → defer the hand; rc 0/1 means the chime played or there was nothing to
+# play. This closes the check-then-play race the old read-only lock check had.
 if ls "${PHRASES_DIR}/${VOICE}"/announce_*.mp3 >/dev/null 2>&1; then
   if [ -f "$SERVER_DIR/src/phrases.ts" ] && command -v pnpm >/dev/null 2>&1; then
-    loga "announce phrase for ${SESSION_ID:0:12} (voice ${VOICE})"
-    (cd "$SERVER_DIR" && pnpm exec tsx src/phrases.ts play "$VOICE" announce) >/dev/null 2>&1 || true
+    rc=0
+    (cd "$SERVER_DIR" && pnpm exec tsx src/phrases.ts play "$VOICE" announce) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "2" ]; then
+      defer
+    else
+      loga "announce phrase for ${SESSION_ID:0:12} (voice ${VOICE})"
+    fi
   fi
 else
+  # Legacy SFX fallback (voice has no announce phrases yet). Best-effort: played
+  # without holding the stream lock, so a grant landing at the same instant could
+  # briefly overlap. Accepted as a tiny risk for this rare no-phrase case.
   sfx="$(bash "$SCRIPTS_DIR/random_sfx.sh" 2>/dev/null || true)"
   if [ -n "$sfx" ] && [ -f "$sfx" ]; then
     loga "no announce phrases for ${VOICE} — legacy SFX $(basename "$sfx")"

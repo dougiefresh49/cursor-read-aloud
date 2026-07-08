@@ -1,24 +1,30 @@
-import { existsSync, readFileSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, appendFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
-import { TTS_DIR, STREAM_LOCK, STATE_DIR } from "./config.js";
+import { TTS_DIR, STATE_DIR } from "./config.js";
+import { acquireLock, releaseLock } from "./audio.js";
 import { log } from "./logger.js";
 
 // Deferred-announce ledger: sessionIds that raised a hand while the floor was
-// busy (written one-per-line by scripts/announce.sh). Fired once, by name, the
-// moment the floor is truly free — a helpful nudge, never a nag.
+// busy (written one-per-line by scripts/announce.sh and handleAskUser). Fired
+// once, by name, the moment the floor is truly free — a helpful nudge, never a nag.
 const PENDING_ANNOUNCE = join(TTS_DIR, ".pending-announce");
 
-// The floor is free when the stream lock is absent or held by a dead pid.
-// Mirrors audio.ts acquireLock liveness — but read-only, never steals.
-function lockFree(): boolean {
-  if (!existsSync(STREAM_LOCK)) return true;
+// Record a session for the deferred-announce nudge (dedup by line). Used by the
+// in-process announce/ask-user paths when the floor is busy at hand-raise time.
+export function deferAnnounce(sessionId: string): void {
+  if (!sessionId) return;
   try {
-    const pid = Number(readFileSync(STREAM_LOCK, "utf-8").trim());
-    process.kill(pid, 0);
-    return false; // live holder — someone is still speaking / mid-grant
-  } catch {
-    return true; // stale marker
+    const existing = existsSync(PENDING_ANNOUNCE)
+      ? readFileSync(PENDING_ANNOUNCE, "utf-8")
+      : "";
+    const lines = new Set(
+      existing.split("\n").map((l) => l.trim()).filter(Boolean)
+    );
+    if (lines.has(sessionId)) return;
+    appendFileSync(PENDING_ANNOUNCE, `${sessionId}\n`);
+  } catch (err: any) {
+    log("announce", `deferAnnounce failed: ${err.message}`);
   }
 }
 
@@ -71,37 +77,45 @@ function joinNames(names: string[]): string {
 export function maybeFireDeferredAnnounce(): void {
   try {
     if (!existsSync(PENDING_ANNOUNCE)) return;
-    if (!lockFree()) return; // mid-play / mid-grant — not "free", try again later
 
-    const raw = readFileSync(PENDING_ANNOUNCE, "utf-8");
-    const ids = [
-      ...new Set(
-        raw
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-      ),
-    ];
-
-    // Consume the ledger unconditionally — a deferred announce is a one-shot
-    // nudge; hands still up but not in the file were left up on purpose.
+    // Take the stream lock try-once BEFORE consuming the ledger. If the floor is
+    // busy, leave the file intact and return — the next settle point retries.
+    // Holding the lock across `say` keeps a grant/auto-play from talking over the
+    // nudge, and only unlinking after acquiring means a lost race never drops it.
+    if (!acquireLock()) return;
     try {
-      unlinkSync(PENDING_ANNOUNCE);
-    } catch {}
+      const raw = readFileSync(PENDING_ANNOUNCE, "utf-8");
+      const ids = [
+        ...new Set(
+          raw
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean)
+        ),
+      ];
 
-    const names: string[] = [];
-    for (const id of ids) {
-      const n = handRaisedName(id);
-      if (n) names.push(n);
+      // Consume the ledger — a deferred announce is a one-shot nudge; hands still
+      // up but not in the file were left up on purpose.
+      try {
+        unlinkSync(PENDING_ANNOUNCE);
+      } catch {}
+
+      const names: string[] = [];
+      for (const id of ids) {
+        const n = handRaisedName(id);
+        if (n) names.push(n);
+      }
+      if (names.length === 0) return; // all granted/cleared in the meantime
+
+      const phrase =
+        names.length === 1
+          ? `One hand up: ${names[0]}.`
+          : `${countWord(names.length)} hands up: ${joinNames(names)}.`;
+      log("announce", `Deferred announce: ${phrase}`);
+      spawnSync("say", [phrase], { stdio: "ignore" });
+    } finally {
+      releaseLock();
     }
-    if (names.length === 0) return; // all granted/cleared in the meantime
-
-    const phrase =
-      names.length === 1
-        ? `One hand up: ${names[0]}.`
-        : `${countWord(names.length)} hands up: ${joinNames(names)}.`;
-    log("announce", `Deferred announce: ${phrase}`);
-    spawnSync("say", [phrase], { stdio: "ignore" });
   } catch (err: any) {
     log("announce", `maybeFireDeferredAnnounce failed: ${err.message}`);
   }
