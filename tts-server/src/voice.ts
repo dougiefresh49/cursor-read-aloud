@@ -104,11 +104,26 @@ function buildFloorCandidates(): NameCandidate[] {
   const voices = loadSessionVoices();
   for (const [sessionId, voiceId] of Object.entries(voices)) {
     const char = getCharacter(voiceId);
-    if (char) add(char.name, sessionId);
+    if (!char) continue;
+    add(char.name, sessionId);
+    for (const nick of NICKNAMES[normalizeToken(char.name)] ?? []) {
+      add(nick, sessionId);
+    }
   }
 
   return out;
 }
+
+// Spoken nicknames can't be reached by prefix/edit-distance matching
+// ("donnie" vs "donatello" is 4 edits) — the names you'd actually say
+// need an explicit alias table.
+const NICKNAMES: Record<string, string[]> = {
+  donatello: ["donnie", "don", "donny"],
+  michelangelo: ["mikey", "mike", "mickey"],
+  raphael: ["raph", "ralph"],
+  leonardo: ["leo"],
+  splinter: ["master splinter", "sensei"],
+};
 
 function buildInjectionCandidates(): Array<{ label: string; target: string }> {
   const out: Array<{ label: string; target: string }> = [];
