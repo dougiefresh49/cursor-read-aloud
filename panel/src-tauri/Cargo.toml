@@ -1,0 +1,21 @@
+[package]
+name = "room-panel"
+version = "0.1.0"
+description = "Room agent panel"
+authors = ["dougiefresh"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "room_panel_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+tauri = { version = "2", features = [] }
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }
