@@ -121,6 +121,7 @@ defaults = {
     "streaming_session_prefix": "auto",
     "played_retention_count": 50,
     "mic_device": ":default",
+    "arcade_enabled": False,
 }
 
 changed = False
@@ -144,6 +145,21 @@ if changed:
         json.dump(c, f, indent=2)
         f.write("\n")
 PY
+
+# ── 5a. Default arcade button map (learn mode fills in the buttons) ─
+ARCADE_FILE="$TTS_DIR/arcade_buttons.json"
+if [ -f "$ARCADE_FILE" ]; then
+    log "Arcade button map already exists at $ARCADE_FILE"
+else
+    log "Writing default arcade button map to $ARCADE_FILE"
+    cat > "$ARCADE_FILE" <<'JSON'
+{
+  "device_hint": "joystick|usb gamepad|generic",
+  "buttons": {}
+}
+JSON
+    log "  Run 'pnpm exec tsx src/hid.ts learn' in tts-server to map the buttons"
+fi
 
 # ── 5b. Mic device discovery (log only; pin via mic_device in config) ─
 if command -v ffmpeg >/dev/null 2>&1; then

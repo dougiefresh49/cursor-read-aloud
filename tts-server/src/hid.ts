@@ -1,0 +1,484 @@
+import { readFileSync, existsSync, readdirSync, renameSync, writeFileSync } from "fs";
+import { join } from "path";
+import { spawn } from "child_process";
+import { pathToFileURL } from "url";
+import { createInterface } from "readline";
+import { devices, HID } from "node-hid";
+import {
+  TTS_DIR,
+  STATE_DIR,
+  ARCADE_BUTTONS_PATH,
+  DEFAULT_DEVICE_HINT,
+  loadArcadeButtons,
+  loadSessionVoices,
+  effectivePlaybackMode,
+  type ArcadeButton,
+  type ArcadeButtons,
+} from "./config.js";
+import { getCharacter } from "./dynamic-response.js";
+import { log } from "./logger.js";
+
+const SCRIPTS_DIR = join(TTS_DIR, "scripts");
+const SERVER_DIR = join(TTS_DIR, "tts-server");
+const TEAM_MAP_PATH = join(TTS_DIR, "team_map.json");
+
+// A press held this long or longer is a hold (PTT), not a tap (grant).
+const HOLD_MS = 500;
+// Reconnect poll: one cheap enumerate every 3s while the device is closed.
+const RECONNECT_MS = 3000;
+
+// ── Report diffing ────────────────────────────────────────────────
+// The encoder is a plain HID gamepad: input reports carry button states as a
+// bitmask somewhere in the report (typically bytes 5-6 on DragonRise), plus
+// analog axes for the stick. We don't hardcode byte offsets — we XOR each
+// report against the previous one and treat every changed bit as an event,
+// keyed by a stable index = byteOffset*8 + bitOffset. That index is
+// deterministic across runs (so learn mode's mapping stays valid), and stick /
+// axis noise just produces indices that no button is mapped to → ignored.
+type Edge = "down" | "up";
+
+function makeDiffer(): (buf: Buffer, emit: (edge: Edge, idx: number) => void) => void {
+  let prev: Buffer | null = null;
+  return (buf, emit) => {
+    if (!prev) {
+      prev = Buffer.from(buf);
+      return;
+    }
+    const len = Math.max(prev.length, buf.length);
+    for (let byte = 0; byte < len; byte++) {
+      const a = prev[byte] ?? 0;
+      const b = buf[byte] ?? 0;
+      let changed = a ^ b;
+      if (!changed) continue;
+      for (let bit = 0; bit < 8; bit++) {
+        const mask = 1 << bit;
+        if (changed & mask) {
+          emit(b & mask ? "down" : "up", byte * 8 + bit);
+        }
+      }
+    }
+    prev = Buffer.from(buf);
+  };
+}
+
+// ── Failure isolation ─────────────────────────────────────────────
+// Every handler runs through this: a throwing button handler logs and dies
+// quietly, it never propagates out to crash the shared tts-server daemon.
+function safe(fn: () => void): void {
+  try {
+    fn();
+  } catch (err: any) {
+    log("hid", `handler error: ${err?.message ?? err}`);
+  }
+}
+
+// ── Spawning (non-blocking; the daemon must not stall on a button) ─
+function runScript(name: string, args: string[]): void {
+  try {
+    const child = spawn(join(SCRIPTS_DIR, name), args, { stdio: "ignore" });
+    child.on("error", (e) => log("hid", `${name} spawn error: ${e.message}`));
+  } catch (err: any) {
+    log("hid", `${name} spawn failed: ${err?.message ?? err}`);
+  }
+}
+
+function runSignalReplay(): void {
+  try {
+    const child = spawn(
+      "pnpm",
+      ["exec", "tsx", "src/signal.ts", "replay", "", "1"],
+      { cwd: SERVER_DIR, stdio: "ignore" }
+    );
+    child.on("error", (e) => log("hid", `signal replay spawn error: ${e.message}`));
+  } catch (err: any) {
+    log("hid", `signal replay spawn failed: ${err?.message ?? err}`);
+  }
+}
+
+// ── Character → session resolution ────────────────────────────────
+// Reverse of press-time lookup: character name → voiceId (via characters.json)
+// → the session wearing that voice (session_voices.json). Newest active
+// session wins; a team_map.json persona whose name matches wins ties.
+interface StateSnapshot {
+  state?: string;
+  updatedAt?: string;
+}
+
+function readState(sessionId: string): StateSnapshot | null {
+  try {
+    const p = join(STATE_DIR, `${sessionId}.json`);
+    if (!existsSync(p)) return null;
+    return JSON.parse(readFileSync(p, "utf-8")) as StateSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function loadTeamMap(): Record<string, { sessionId?: string }> {
+  try {
+    if (!existsSync(TEAM_MAP_PATH)) return {};
+    return JSON.parse(readFileSync(TEAM_MAP_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function resolveCharacterSession(character: string): string | null {
+  const want = character.trim().toLowerCase();
+  if (!want) return null;
+
+  // Sessions whose assigned voice belongs to this character.
+  const candidates: string[] = [];
+  for (const [sessionId, voiceId] of Object.entries(loadSessionVoices())) {
+    const char = getCharacter(voiceId);
+    if (char && char.name.trim().toLowerCase() === want) candidates.push(sessionId);
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Team-map persona wins ties: if a persona keyed by this character name pins
+  // a sessionId that is one of the candidates, prefer it.
+  const team = loadTeamMap();
+  const teamEntry = team[want];
+  if (teamEntry?.sessionId && candidates.includes(teamEntry.sessionId)) {
+    return teamEntry.sessionId;
+  }
+
+  // Otherwise newest active session — most recently updated state file wins.
+  let best: string | null = null;
+  let bestT = -1;
+  for (const sid of candidates) {
+    const st = readState(sid);
+    if (!st) continue;
+    const t = st.updatedAt ? Date.parse(st.updatedAt) : 0;
+    if (t >= bestT) {
+      bestT = t;
+      best = sid;
+    }
+  }
+  return best ?? candidates[0];
+}
+
+// ── Dispatch ──────────────────────────────────────────────────────
+function buttonFor(idx: number): ArcadeButton | null {
+  const cfg = loadArcadeButtons();
+  return cfg.buttons[String(idx)] ?? null;
+}
+
+const MODE_CYCLE: Record<string, string> = {
+  auto: "announce",
+  announce: "silent",
+  silent: "auto",
+};
+
+function doAction(action: string): void {
+  switch (action) {
+    case "grant_next":
+      runScript("grant_floor.sh", []);
+      return;
+    case "replay":
+      runSignalReplay();
+      return;
+    case "stop":
+      runScript("stop.sh", []);
+      return;
+    case "cycle_mode":
+    case "toggle_mode": {
+      const next = MODE_CYCLE[effectivePlaybackMode()] ?? "auto";
+      runScript("set_playback_mode.sh", [next]);
+      return;
+    }
+    default:
+      log("hid", `unknown action: ${action}`);
+  }
+}
+
+function characterPress(character: string): void {
+  const sid = resolveCharacterSession(character);
+  if (!sid) {
+    log("hid", `no active session wearing ${character}'s voice — press ignored`);
+    return;
+  }
+  // Already talking → the tap means "I heard enough": duck it instead of
+  // re-granting the floor (design doc's ducking rule).
+  if (readState(sid)?.state === "speaking") {
+    log("hid", `${character} (${sid.slice(0, 12)}) speaking → stop`);
+    runScript("stop.sh", []);
+  } else {
+    log("hid", `grant floor → ${character} (${sid.slice(0, 12)})`);
+    runScript("grant_floor.sh", [sid]);
+  }
+}
+
+function characterHold(character: string, phase: "start" | "stop"): void {
+  const sid = resolveCharacterSession(character);
+  if (!sid) {
+    log("hid", `no active session wearing ${character}'s voice — PTT ${phase} ignored`);
+    return;
+  }
+  log("hid", `PTT ${phase} → ${character} (${sid.slice(0, 12)})`);
+  runScript("ptt.sh", [phase, sid]);
+}
+
+function handlePress(idx: number): void {
+  const btn = buttonFor(idx);
+  if (!btn) return;
+  if (btn.character) characterPress(btn.character);
+  else if (btn.action) doAction(btn.action);
+}
+
+function handleHoldStart(idx: number): void {
+  const btn = buttonFor(idx);
+  if (btn?.character) characterHold(btn.character, "start");
+}
+
+function handleHoldEnd(idx: number): void {
+  const btn = buttonFor(idx);
+  if (!btn) return;
+  // Character buttons close the PTT capture. Action buttons have no hold
+  // semantic — a long press still fires the action on release.
+  if (btn.character) characterHold(btn.character, "stop");
+  else if (btn.action) doAction(btn.action);
+}
+
+// ── Press / hold detection ────────────────────────────────────────
+interface Pending {
+  timer: ReturnType<typeof setTimeout>;
+  holding: boolean;
+}
+const pending = new Map<number, Pending>();
+
+function onEdge(edge: Edge, idx: number): void {
+  if (edge === "down") {
+    if (pending.has(idx)) return; // ignore repeat-downs for a held button
+    const p: Pending = {
+      holding: false,
+      timer: setTimeout(() => {
+        p.holding = true;
+        safe(() => handleHoldStart(idx));
+      }, HOLD_MS),
+    };
+    pending.set(idx, p);
+  } else {
+    const p = pending.get(idx);
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.delete(idx);
+    if (p.holding) safe(() => handleHoldEnd(idx));
+    else safe(() => handlePress(idx));
+  }
+}
+
+function clearPending(): void {
+  for (const p of pending.values()) clearTimeout(p.timer);
+  pending.clear();
+}
+
+// ── Device discovery / open / reconnect ───────────────────────────
+function findDevicePath(hint: string): string | null {
+  const hints = (hint || DEFAULT_DEVICE_HINT)
+    .toLowerCase()
+    .split("|")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let list;
+  try {
+    list = devices();
+  } catch (err: any) {
+    log("hid", `devices() failed: ${err?.message ?? err}`);
+    return null;
+  }
+  for (const d of list) {
+    const hay = `${d.product ?? ""} ${d.manufacturer ?? ""}`.toLowerCase();
+    if (hints.some((h) => hay.includes(h))) return d.path ?? null;
+  }
+  return null;
+}
+
+let device: HID | null = null;
+let scheduler: ReturnType<typeof setInterval> | null = null;
+let differ = makeDiffer();
+
+function openDevice(): void {
+  if (device) return;
+  const path = findDevicePath(loadArcadeButtons().device_hint);
+  if (!path) return; // unplugged → silent no-op; the scheduler retries
+  try {
+    const d = new HID(path);
+    differ = makeDiffer(); // reset baseline so the first report doesn't fire
+    d.on("data", (buf: Buffer) => safe(() => differ(buf, onEdge)));
+    d.on("error", (err: any) => {
+      log("hid", `device error: ${err?.message ?? err}`);
+      closeDevice(); // reconnect is the scheduler's job — never a timer here
+    });
+    device = d;
+    log("hid", `opened encoder at ${path}`);
+  } catch (err: any) {
+    log("hid", `open failed: ${err?.message ?? err}`);
+  }
+}
+
+function closeDevice(): void {
+  const d = device;
+  device = null;
+  clearPending();
+  if (!d) return;
+  try {
+    d.close();
+  } catch {
+    /* already gone */
+  }
+}
+
+export function startHid(): void {
+  if (scheduler) return; // idempotent
+  openDevice();
+  // ONE persistent scheduler, installed once; no-ops while the device is open.
+  // Error/close handlers never install timers, so intervals can't stack.
+  scheduler = setInterval(() => {
+    if (!device) safe(openDevice);
+  }, RECONNECT_MS);
+  log("hid", `started (reconnect poll ${RECONNECT_MS}ms)`);
+}
+
+export function stopHid(): void {
+  if (scheduler) {
+    clearInterval(scheduler);
+    scheduler = null;
+  }
+  closeDevice();
+}
+
+// ── Learn mode ────────────────────────────────────────────────────
+// Walk the physical buttons in a fixed order, record the HID index of the next
+// button each one fires, and write arcade_buttons.json with sensible default
+// bindings. No wiring assumptions — this is how the map gets written.
+interface LearnSpec {
+  name: string;
+  def: Omit<ArcadeButton, "name">;
+}
+
+const LEARN_ORDER: LearnSpec[] = [
+  { name: "white", def: { action: "grant_next" } },
+  { name: "blue", def: { character: "leonardo" } },
+  { name: "red", def: { character: "raphael" } },
+  { name: "teal", def: { character: "donatello" } },
+  { name: "yellow", def: { character: "michelangelo" } },
+  { name: "1p", def: { action: "replay" } },
+  { name: "2p", def: { action: "stop" } },
+  { name: "coin", def: { action: "cycle_mode" } },
+];
+
+const LEARN_TIMEOUT_MS = 30_000;
+
+function writeArcadeButtons(cfg: ArcadeButtons): void {
+  const tmp = `${ARCADE_BUTTONS_PATH}.tmp.${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2) + "\n");
+  renameSync(tmp, ARCADE_BUTTONS_PATH);
+}
+
+async function learn(): Promise<void> {
+  const hint = loadArcadeButtons().device_hint;
+  const path = findDevicePath(hint);
+  if (!path) {
+    console.error(
+      `No encoder found matching "${hint}". Plug it in and try again.`
+    );
+    process.exit(1);
+  }
+
+  const d = new HID(path);
+  const ldiff = makeDiffer();
+  let onDown: ((idx: number) => void) | null = null;
+  d.on("error", (err: any) => {
+    console.error(`Device error: ${err?.message ?? err}`);
+    process.exit(1);
+  });
+  d.on("data", (buf: Buffer) => {
+    try {
+      ldiff(buf, (edge, idx) => {
+        if (edge === "down" && onDown) {
+          const cb = onDown;
+          onDown = null;
+          cb(idx);
+        }
+      });
+    } catch {
+      /* ignore malformed report during learn */
+    }
+  });
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  const waitButton = (name: string): Promise<number | null> =>
+    new Promise((resolve) => {
+      let done = false;
+      process.stdout.write(
+        `Press the ${name.toUpperCase()} button now (or 's' + Enter to skip)... `
+      );
+      const finish = (v: number | null) => {
+        if (done) return;
+        done = true;
+        clearTimeout(to);
+        rl.off("line", onLine);
+        onDown = null;
+        resolve(v);
+      };
+      const to = setTimeout(() => {
+        process.stdout.write("(timeout, skipped)\n");
+        finish(null);
+      }, LEARN_TIMEOUT_MS);
+      const onLine = (line: string) => {
+        if (line.trim().toLowerCase() === "s") {
+          process.stdout.write("(skipped)\n");
+          finish(null);
+        }
+      };
+      rl.on("line", onLine);
+      onDown = (idx) => {
+        process.stdout.write(`recorded index ${idx}\n`);
+        finish(idx);
+      };
+    });
+
+  console.log("Learn mode — map each physical button to its HID index.\n");
+  const buttons: Record<string, ArcadeButton> = {};
+  for (const spec of LEARN_ORDER) {
+    const idx = await waitButton(spec.name);
+    if (idx == null) continue;
+    if (buttons[String(idx)]) {
+      console.log(
+        `  (index ${idx} already mapped to "${buttons[String(idx)].name}" — overwriting with "${spec.name}")`
+      );
+    }
+    buttons[String(idx)] = { name: spec.name, ...spec.def };
+  }
+
+  const cfg: ArcadeButtons = {
+    device_hint: hint || DEFAULT_DEVICE_HINT,
+    buttons,
+  };
+  writeArcadeButtons(cfg);
+  console.log(`\nWrote ${ARCADE_BUTTONS_PATH}`);
+  console.log(JSON.stringify(cfg, null, 2));
+
+  rl.close();
+  try {
+    d.close();
+  } catch {
+    /* ignore */
+  }
+  process.exit(0);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv[2] === "learn") {
+    learn().catch((err) => {
+      console.error(err?.message ?? err);
+      process.exit(1);
+    });
+  } else {
+    console.error("Usage: tsx src/hid.ts learn");
+    process.exit(1);
+  }
+}
