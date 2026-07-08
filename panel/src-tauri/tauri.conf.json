@@ -13,9 +13,11 @@
     "windows": [
       {
         "title": "Room",
-        "width": 360,
+        "width": 380,
         "height": 300,
-        "resizable": false,
+        "minWidth": 300,
+        "minHeight": 240,
+        "resizable": true,
         "decorations": false,
         "alwaysOnTop": true,
         "fullscreen": false

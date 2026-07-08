@@ -39,6 +39,15 @@ const stateLabels: Record<AgentState, string> = {
   idle: "idle",
 };
 
+const icons = {
+  pause: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>`,
+  stop: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>`,
+  replay: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h8a4 4 0 1 1-3.2 6.4"/><path d="M7 7v5H2"/></svg>`,
+  terminal: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 8 3 3-3 3"/><path d="M12 16h5"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>`,
+  power: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M7.05 7.05a7 7 0 1 0 9.9 0"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>`,
+} as const;
+
 function send(msg: object) {
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
@@ -78,6 +87,7 @@ function renderCard(agent: AgentView): string {
   const mutedClass = agent.muted ? " muted" : "";
   const teamOnly = !agent.isTeam;
   const killIsArmed = killArmed.has(agent.sessionId);
+  const safeName = escapeHtml(agent.name);
   const raisedChip =
     agent.state === "hand_raised"
       ? `<span class="chip raised" title="Hand raised">✋</span>`
@@ -98,39 +108,41 @@ function renderCard(agent: AgentView): string {
       role="button"
       tabindex="0"
     >
-      <div class="card-actions">
+      <div class="card-main">
+        <div class="avatar-wrap">
+          <img class="avatar" src="${avatarSrc(agent)}" alt="" />
+          <span class="avatar-fallback">${initials(agent.name)}</span>
+        </div>
+        <div class="card-body">
+          <div class="name${mutedClass}" title="${safeName}">${safeName}</div>
+          <div class="badge state-${agent.state}">
+            <span class="dot"></span>
+            <span class="label">${stateLabels[agent.state]}</span>
+          </div>
+          <div class="chips">${raisedChip}${queueChip}${supersededChip}</div>
+        </div>
+      </div>
+      <div class="card-actions" aria-label="Agent actions">
         <button
           type="button"
-          class="hover-btn${teamOnly ? " disabled" : ""}"
+          class="icon-btn hover-btn${teamOnly ? " disabled" : ""}"
           data-hover-action="focus"
           title="${teamOnly ? "team sessions only" : "Jump to terminal"}"
           ${teamOnly ? "disabled" : ""}
-        >🖥</button>
+        >${icons.terminal}</button>
         <button
           type="button"
-          class="hover-btn kill-btn${teamOnly ? " disabled" : ""}${killIsArmed ? " armed" : ""}"
+          class="icon-btn hover-btn kill-btn${teamOnly ? " disabled" : ""}${killIsArmed ? " armed" : ""}"
           data-hover-action="kill"
           title="${teamOnly ? "team sessions only" : killIsArmed ? "click again to end session" : "End session"}"
           ${teamOnly ? "disabled" : ""}
-        >⏻</button>
+        >${icons.power}</button>
         <button
           type="button"
-          class="hover-btn"
+          class="icon-btn hover-btn"
           data-hover-action="status"
           title="Speak status"
-        >ℹ️</button>
-      </div>
-      <div class="avatar-wrap">
-        <img class="avatar" src="${avatarSrc(agent)}" alt="" />
-        <span class="avatar-fallback">${initials(agent.name)}</span>
-      </div>
-      <div class="card-body">
-        <div class="name${mutedClass}">${escapeHtml(agent.name)}</div>
-        <div class="badge state-${agent.state}">
-          <span class="dot"></span>
-          <span class="label">${stateLabels[agent.state]}</span>
-        </div>
-        <div class="chips">${raisedChip}${queueChip}${supersededChip}</div>
+        >${icons.info}</button>
       </div>
     </div>
   `;
@@ -155,9 +167,9 @@ function render() {
       ${agents.length ? agents.map(renderCard).join("") : '<p class="empty">No agents</p>'}
     </main>
     <footer class="controls no-drag">
-      <button type="button" data-action="pause" title="Pause / resume playback">⏸</button>
-      <button type="button" data-action="stop" title="Stop playback">⏹</button>
-      <button type="button" data-action="replay" title="Replay last message (free)">🔁</button>
+      <button type="button" class="icon-btn" data-action="pause" title="Pause / resume playback">${icons.pause}</button>
+      <button type="button" class="icon-btn" data-action="stop" title="Stop playback">${icons.stop}</button>
+      <button type="button" class="icon-btn" data-action="replay" title="Replay last message (free)">${icons.replay}</button>
     </footer>
   `;
 
