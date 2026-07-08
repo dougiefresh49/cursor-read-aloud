@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-ws-token"
+description = "Enables the ws_token command."
+commands.allow = ["ws_token"]
