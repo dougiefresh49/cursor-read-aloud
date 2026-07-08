@@ -63,7 +63,8 @@ for script in \
     set_streaming.sh set_playback_mode.sh announce.sh replay.sh \
     set_session_mute.sh set_session_voice.sh \
     ingest_claude_code.sh fetch_credits.sh \
-    ptt.sh voice_ptt.sh; do
+    ptt.sh voice_ptt.sh \
+    team.sh inject_prompt.sh; do
     if [ -f "$PROJECT_DIR/scripts/$script" ]; then
         cp "$PROJECT_DIR/scripts/$script" "$TTS_DIR/scripts/$script"
     fi
