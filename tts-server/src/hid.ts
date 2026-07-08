@@ -693,7 +693,23 @@ async function learn(): Promise<void> {
     process.exit(1);
   }
 
-  const d = new HID(path);
+  let d: HID;
+  try {
+    d = new HID(path);
+  } catch (err: any) {
+    console.error(`Cannot open the encoder (${err?.message ?? err}).`);
+    console.error(
+      "Most likely the tts-server daemon has it open (arcade_enabled=true)."
+    );
+    console.error("Stop it, learn, then restart:");
+    console.error("  ~/.cursor/tts/scripts/tts-server.sh stop");
+    console.error("  pnpm exec tsx src/hid.ts learn ...");
+    console.error("  ~/.cursor/tts/scripts/tts-server.sh start");
+    console.error(
+      "(Or capture through the Room panel: Settings > Buttons > input-code chip — that path works while the daemon runs.)"
+    );
+    process.exit(1);
+  }
   let calibrated = false;
   const ldiff = makeDiffer((noisy) => {
     calibrated = true;
