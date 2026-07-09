@@ -5,7 +5,7 @@ import {
   readdirSync,
   statSync,
 } from "fs";
-import { join } from "path";
+import { join, basename } from "path";
 import {
   STATE_DIR,
   QUEUE_DIR,
@@ -199,13 +199,24 @@ export function subscribe(cb: NotifyCallback): () => void {
 export function startStateWatch(): void {
   if (watcher) return;
   try {
-    watcher = watch(
-      [STATE_DIR, TEAM_MAP_PATH, NOW_PLAYING_PATH, HOLD_ROOM_PATH, TRIAGE_PATH],
-      { ignoreInitial: true }
+    // Root-level files (.triage.json etc.) are replaced via atomic tmp+rename,
+    // which orphans a per-FILE watch (new inode). Watch their parent DIRECTORY
+    // shallowly instead and filter by basename — directory watches survive
+    // rename-replacement.
+    const ROOT_FILES = new Set(
+      [TEAM_MAP_PATH, NOW_PLAYING_PATH, HOLD_ROOM_PATH, TRIAGE_PATH].map((p) =>
+        basename(p)
+      )
     );
-    watcher.on("add", () => scheduleNotify());
-    watcher.on("change", () => scheduleNotify());
-    watcher.on("unlink", () => scheduleNotify());
+    const relevant = (path: string) =>
+      path.startsWith(STATE_DIR) || ROOT_FILES.has(basename(path));
+    watcher = watch([STATE_DIR, TTS_DIR], {
+      ignoreInitial: true,
+      depth: 0,
+    });
+    watcher.on("add", (p) => relevant(p) && scheduleNotify());
+    watcher.on("change", (p) => relevant(p) && scheduleNotify());
+    watcher.on("unlink", (p) => relevant(p) && scheduleNotify());
     watcher.on("error", (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       log("state-watch", `watcher error: ${msg}`);

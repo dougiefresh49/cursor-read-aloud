@@ -7,6 +7,7 @@ import {
   LogicalSize,
   PhysicalPosition,
   PhysicalSize,
+  availableMonitors,
   currentMonitor,
   getCurrentWindow,
 } from "@tauri-apps/api/window";
@@ -441,6 +442,22 @@ async function exitDockMode() {
 type SnapCorner = "bl" | "br" | "bc" | "tr";
 const SNAP_MARGIN = 12;
 
+function cornerTarget(
+  corner: SnapCorner,
+  mon: { x: number; y: number; w: number; h: number },
+  width: number,
+  height: number
+): { x: number; y: number } {
+  let x = mon.x + SNAP_MARGIN;
+  let y = mon.y + SNAP_MARGIN;
+  if (corner === "br" || corner === "tr") x = mon.x + mon.w - width - SNAP_MARGIN;
+  else if (corner === "bc") x = mon.x + (mon.w - width) / 2;
+  if (corner === "bl" || corner === "br" || corner === "bc") {
+    y = mon.y + mon.h - height - SNAP_MARGIN;
+  }
+  return { x, y };
+}
+
 async function snapToCorner(corner: SnapCorner) {
   const win = getCurrentWindow();
   try {
@@ -448,24 +465,44 @@ async function snapToCorner(corner: SnapCorner) {
     if (!monitor) return;
     const scale = await win.scaleFactor();
     const size = await win.outerSize();
+    const pos = await win.outerPosition();
     const width = size.width / scale;
     const height = size.height / scale;
-    const monitorX = monitor.position.x / scale;
-    const monitorY = monitor.position.y / scale;
-    const monitorWidth = monitor.size.width / scale;
-    const monitorHeight = monitor.size.height / scale;
+    const curX = pos.x / scale;
+    const curY = pos.y / scale;
+    const toRect = (m: { position: { x: number; y: number }; size: { width: number; height: number } }) => ({
+      x: m.position.x / scale,
+      y: m.position.y / scale,
+      w: m.size.width / scale,
+      h: m.size.height / scale,
+    });
 
-    let x = monitorX + SNAP_MARGIN;
-    let y = monitorY + SNAP_MARGIN;
-    if (corner === "br" || corner === "tr") {
-      x = monitorX + monitorWidth - width - SNAP_MARGIN;
-    } else if (corner === "bc") {
-      x = monitorX + (monitorWidth - width) / 2;
+    let mon = toRect(monitor);
+    let target = cornerTarget(corner, mon, width, height);
+
+    // Already parked at this corner? A repeat flick means "keep going" —
+    // jump to the adjacent monitor in that horizontal direction (bl = left,
+    // br/tr = right; bc has no horizontal intent).
+    const atTarget =
+      Math.abs(curX - target.x) < 24 && Math.abs(curY - target.y) < 24;
+    if (atTarget && corner !== "bc") {
+      const wantLeft = corner === "bl";
+      const monitors = (await availableMonitors()).map(toRect);
+      const candidates = monitors.filter((m) =>
+        wantLeft ? m.x + m.w <= mon.x + 1 : m.x >= mon.x + mon.w - 1
+      );
+      if (candidates.length) {
+        candidates.sort((a, b) =>
+          wantLeft ? b.x - a.x : a.x - b.x
+        );
+        mon = candidates[0];
+        target = cornerTarget(corner, mon, width, height);
+      }
     }
-    if (corner === "bl" || corner === "br" || corner === "bc") {
-      y = monitorY + monitorHeight - height - SNAP_MARGIN;
-    }
-    await win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
+
+    await win.setPosition(
+      new LogicalPosition(Math.round(target.x), Math.round(target.y))
+    );
   } catch (err) {
     console.error("failed to snap panel:", err);
   }
