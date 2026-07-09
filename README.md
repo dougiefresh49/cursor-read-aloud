@@ -1,6 +1,17 @@
-# <img src="icons/tmnt-notification-queued.png" alt="Read aloud" width="40" /> Cursor Read Aloud
+# <img src="icons/tmnt-notification-queued.png" alt="Room of Devs" width="40" /> Room of Devs
 
-A macOS menu bar tool that reads AI coding agent responses aloud using [ElevenLabs](https://elevenlabs.io) TTS. Supports both **Cursor IDE** and **Claude Code** with natural speech powered by Gemini text preprocessing and ElevenLabs v3 audio tags.
+A macOS "room full of AI devs": every coding agent session (**Claude Code** or **Cursor IDE**) gets a character with its own [ElevenLabs](https://elevenlabs.io) voice. Agents raise a hand when they finish, you grant the floor by click, voice, or arcade button, and they speak their update aloud — Gemini preprocesses each reply into natural in-character speech. A floating Room panel shows the whole team at a glance.
+
+## The Room
+
+| | |
+|---|---|
+| <img src="docs/media/room-full.png" width="380" alt="Room panel with agent cards" /> | <img src="docs/media/room-swap.png" width="380" alt="Character swap popover" /> |
+| **The full room** — one card per live agent session with status (working / hand raised / idle), pending-update badges, and hover actions: jump to terminal, end session, speak status, swap character. | **Character swap** — reassign any session's voice from a 7-character roster on the fly. |
+| <img src="docs/media/room-dock.png" width="380" alt="Docked pill mode" /> | <img src="docs/media/room-dock-hover.png" width="380" alt="Dock hover actions" /> |
+| **Dock mode** — the room collapses to a floating pill with per-agent status rings and badges, visible on every Space. | **Hover an avatar** for the full action cluster, including pause / stop / restart while that agent is speaking. |
+| <img src="docs/media/room-bubble.png" width="380" alt="Summary bubble" /> | <img src="docs/media/room-settings.png" width="380" alt="Arcade button mapping" /> |
+| **Summary bubble** — the last spoken update as rendered markdown, expandable and dismissable. | **Arcade buttons** — a physical USB button deck maps to agents and actions with an in-app learn mode. |
 
 ## How It Works
 
