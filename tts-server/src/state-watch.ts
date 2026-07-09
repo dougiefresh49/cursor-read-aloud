@@ -11,6 +11,8 @@ import {
   QUEUE_DIR,
   PLAYED_DIR,
   TTS_DIR,
+  SESSION_VOICES_PATH,
+  NICKNAMES_PATH,
   loadSessionVoices,
   loadMutedSessions,
   loadNicknames,
@@ -204,9 +206,16 @@ export function startStateWatch(): void {
     // shallowly instead and filter by basename — directory watches survive
     // rename-replacement.
     const ROOT_FILES = new Set(
-      [TEAM_MAP_PATH, NOW_PLAYING_PATH, HOLD_ROOM_PATH, TRIAGE_PATH].map((p) =>
-        basename(p)
-      )
+      [
+        TEAM_MAP_PATH,
+        NOW_PLAYING_PATH,
+        HOLD_ROOM_PATH,
+        TRIAGE_PATH,
+        // Voice + nickname changes must re-broadcast or the panel shows the
+        // old character until an unrelated state change comes along.
+        SESSION_VOICES_PATH,
+        NICKNAMES_PATH,
+      ].map((p) => basename(p))
     );
     const relevant = (path: string) =>
       path.startsWith(STATE_DIR) || ROOT_FILES.has(basename(path));
