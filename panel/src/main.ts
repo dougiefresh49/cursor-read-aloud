@@ -355,7 +355,6 @@ function renderDockAgent(agent: AgentView): string {
   const teamOnly = !agent.isTeam;
   const killIsArmed = killArmed.has(agent.sessionId);
   const displayName = escapeHtml(agent.label ?? agent.name);
-  const safeName = escapeHtml(agent.name);
   const hoverClass = dockHoverSessionId === agent.sessionId ? " hover-intent" : "";
   const liveActions =
     agent.state === "speaking"
@@ -389,7 +388,7 @@ function renderDockAgent(agent: AgentView): string {
       <button
         type="button"
         class="dock-avatar-btn"
-        title="${safeName} - ${stateLabels[agent.state]}"
+        title="${displayName} - ${stateLabels[agent.state]}"
         aria-label="${displayName}, ${stateLabels[agent.state]}"
       >
         <span class="dock-ring">
