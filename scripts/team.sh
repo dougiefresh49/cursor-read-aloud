@@ -66,10 +66,12 @@ PY
 
 if [ -n "$RESUME_ID" ]; then
     log "Launching $TMUX_NAME in $PROJECT_DIR (resume $RESUME_ID)"
-    tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" claude --resume "$RESUME_ID"
+    tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" \
+        claude --dangerously-skip-permissions --resume "$RESUME_ID"
 else
     log "Launching $TMUX_NAME in $PROJECT_DIR"
-    tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" claude
+    tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" \
+        claude --dangerously-skip-permissions
 fi
 
 tmux set-option -t "$TMUX_NAME" mouse on 2>/dev/null || true
