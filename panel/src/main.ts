@@ -133,6 +133,10 @@ let triageFocus: string | null = null;
 let nowPlaying: NowPlaying | null = null;
 let dockCaptions = localStorage.getItem(CAPTIONS_STORAGE_KEY) === "1";
 let dockSummaryExpanded = false;
+// Bubble the user ✕-ed away; keyed per message so the next one re-appears.
+let dockSummaryDismissedKey: string | null = null;
+
+const summaryKey = (np: NowPlaying) => `${np.sessionId}:${np.startedAt}`;
 let dockHoverSessionId: string | null = null;
 let dockHoverHideTimer: ReturnType<typeof setTimeout> | null = null;
 let swapOpenSessionId: string | null = null;
@@ -606,6 +610,7 @@ function renderDock() {
 
 function renderDockCaption(): string {
   if (!dockCaptions || !nowPlaying?.text) return "";
+  if (dockSummaryDismissedKey === summaryKey(nowPlaying)) return "";
   const agent = agents.find((a) => a.sessionId === nowPlaying?.sessionId);
   const name = escapeHtml(agent?.label ?? agent?.name ?? "Room");
   const rawSummary = (nowPlaying.rawText?.trim() || nowPlaying.text).trim();
@@ -623,7 +628,7 @@ function renderDockCaption(): string {
       title="${dockSummaryExpanded ? "Collapse summary" : "Expand summary"}"
     >
       <span class="dock-caption-name">${name}</span>
-      ${dockSummaryExpanded ? `<span class="dock-caption-close" data-summary-action="collapse" aria-hidden="true">${icons.close}</span>` : ""}
+      <span class="dock-caption-close" data-summary-action="dismiss" title="Dismiss" aria-hidden="true">${icons.close}</span>
       <span class="dock-caption-summary">
         ${summary}
       </span>
@@ -1627,7 +1632,12 @@ function bindDockSummaryActions() {
       e.preventDefault();
       e.stopPropagation();
       const action = target.dataset.summaryAction;
-      dockSummaryExpanded = action === "collapse" ? false : !dockSummaryExpanded;
+      if (action === "dismiss") {
+        if (nowPlaying) dockSummaryDismissedKey = summaryKey(nowPlaying);
+        dockSummaryExpanded = false;
+      } else {
+        dockSummaryExpanded = action === "collapse" ? false : !dockSummaryExpanded;
+      }
       render();
       void enterDockMode();
     });

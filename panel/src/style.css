@@ -615,7 +615,8 @@ button,
   min-height: 58px;
   min-width: 0;
   gap: 4px;
-  padding: 8px 11px 9px;
+  /* Right padding clears the always-visible dismiss ✕. */
+  padding: 8px 28px 9px 11px;
   overflow: hidden;
   border: 1px solid rgba(178, 194, 216, 0.2);
   border-radius: 12px;
