@@ -157,6 +157,14 @@ export function purgeSessionQueue(sessionId: string): number {
   return moved;
 }
 
+// Drop a session's room card immediately (used by panel end-session; startup
+// reconciliation would otherwise leave the ghost until the next daemon boot).
+export function removeSessionState(sessionId: string): void {
+  try {
+    unlinkSync(statePath(sessionId));
+  } catch {}
+}
+
 // On daemon start, reconcile STATE_DIR against ~/.claude/sessions in both
 // directions: prune state files for dead sessions, and seed a file for every
 // live session that lacks one (queue file → hand_raised, busy → working, else

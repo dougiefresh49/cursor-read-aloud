@@ -9,6 +9,7 @@ import { loadConfig, TTS_DIR, CONFIG_PATH, loadArcadeButtons, saveArcadeButtons,
 import { buildPanelSnapshot, subscribe } from "./state-watch.js";
 import { log } from "./logger.js";
 import { isTeamSession, tmuxForSession, removeSessionFromTeamMap } from "./team-map.js";
+import { removeSessionState, purgeSessionQueue } from "./state.js";
 import { runStatusSay } from "./status-say.js";
 import { knownDirs, isResumableSession, listResumable } from "./session-catalog.js";
 import { HID_ACTIONS, captureNextPress, isCaptureReady } from "./hid.js";
@@ -706,6 +707,10 @@ function killTeam(sessionId: string): void {
     log("panel-ws", `kill_team failed: ${err?.message ?? err}`);
   }
   removeSessionFromTeamMap(sessionId);
+  // Retire the room card and any undelivered updates, or the ghost lingers
+  // until the next daemon restart's startup reconciliation.
+  purgeSessionQueue(sessionId);
+  removeSessionState(sessionId);
   safe(broadcastSnapshot);
 }
 
