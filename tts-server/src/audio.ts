@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from "child_process";
+import { spawn, spawnSync, ChildProcess } from "child_process";
 import {
   existsSync,
   readFileSync,
@@ -129,6 +129,26 @@ const PLAYBACK_FILE_REF = join(TTS_DIR, ".playback-file");
 const AUDIO_REF = join(TTS_DIR, ".playback-audio");
 
 let currentProcess: ChildProcess | null = null;
+
+// Invariant: a SIGSTOPped player is legitimate ONLY while the pause flag
+// exists. If the flag disappears without a SIGCONT (crashed pauser, manual
+// cleanup), the player wedges forever — the daemon waits on a close event
+// that can't come. Self-heal by resuming any orphaned-suspended child.
+function healOrphanedSuspend(child: ChildProcess): void {
+  try {
+    if (!child.pid || child.killed || existsSync(PAUSED_FLAG)) return;
+    const out = spawnSync("ps", ["-o", "stat=", "-p", String(child.pid)]);
+    if (out.status === 0 && out.stdout.toString().trim().startsWith("T")) {
+      child.kill("SIGCONT");
+      log("audio", `Player ${child.pid} suspended with no pause flag — resumed (self-heal)`);
+    }
+  } catch {}
+}
+
+function startSuspendHealer(child: ChildProcess): () => void {
+  const timer = setInterval(() => healOrphanedSuspend(child), 3000);
+  return () => clearInterval(timer);
+}
 
 export function isProcessing(basename: string): boolean {
   const marker = join(PROCESSING_DIR, basename);
@@ -284,11 +304,13 @@ export function playFile(
     const child = spawn("afplay", args, { stdio: "ignore" });
     currentProcess = child;
     writePidFiles(child.pid);
+    const stopHealer = startSuspendHealer(child);
 
     let settled = false;
     const settle = (code: number) => {
       if (settled) return;
       settled = true;
+      stopHealer();
       if (currentProcess === child) currentProcess = null;
       removePidFiles();
       clearNowPlaying();
@@ -420,9 +442,11 @@ export function playStreamBuffer(
     const replayChunks: Uint8Array[] = [];
 
     let settled = false;
+    const stopHealer = startSuspendHealer(child);
     const settle = (code: number, saveReplay: boolean) => {
       if (settled) return;
       settled = true;
+      stopHealer();
       if (currentProcess === child) currentProcess = null;
       cleanup();
       if (saveReplay && replayChunks.length > 0) {
@@ -552,9 +576,11 @@ export function playMp3Buffer(
     writePidFiles(child.pid);
 
     let settled = false;
+    const stopHealer = startSuspendHealer(child);
     const settle = (code: number) => {
       if (settled) return;
       settled = true;
+      stopHealer();
       if (currentProcess === child) currentProcess = null;
       removePidFiles();
       clearNowPlaying();
