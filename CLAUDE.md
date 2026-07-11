@@ -34,20 +34,24 @@ Every queue item costs one Gemini call (`gemini-3.1-flash-lite`) and one ElevenL
 - Use pnpm, never npm.
 - Delegation roster: cursor-agent, codex, and Claude models only. Don't delegate to agy/Antigravity (owner call, 2026-07-07 — flaky headless behavior).
 - If asked to do too much work at once, stop and state that clearly.
-- If computer use is helpful for completing or verifying work, shell out to gpt-5.x with Codex for it (see the `codex-computer-use` skill).
+- If computer use is helpful for completing or verifying work, shell out to gpt-5.6 with Codex for it (see the `codex-computer-use` skill).
 
 ## Picking the right models for workflows and subagents
 
 Rankings, higher = better. Cost reflects what we actually pay (subscriptions with generous limits rank cheap), not list price. Intelligence is how hard a problem you can hand the model unsupervised. Taste covers UI/UX, code quality, API design, and copy.
 
-| model        | cost | intelligence | taste | reachable via                    |
-| ------------ | ---- | ------------ | ----- | -------------------------------- |
-| composer-2.5 | 8    | 5            | 5     | cursor-agent CLI (`agent`)       |
-| grok-4.5     | 8    | 6            | 6     | cursor-agent CLI (`--model grok-4.5-fast-xhigh`; everyday tier `-fast-high`) |
-| gpt-5.x      | 8    | 7            | 5     | codex CLI (`codex`)              |
-| sonnet-5     | 5    | 5            | 7     | Agent/Workflow `model: 'sonnet'` |
-| opus-4.8     | 4    | 7            | 8     | Agent/Workflow `model: 'opus'`   |
-| fable-5      | 2    | 9            | 9     | Agent/Workflow `model: 'fable'`  |
+| model          | cost | intelligence | taste | reachable via                    |
+| -------------- | ---- | ------------ | ----- | -------------------------------- |
+| composer-2.5   | 8    | 5            | 5     | cursor-agent CLI (`agent`)       |
+| grok-4.5       | 8    | 6            | 6     | cursor-agent CLI (`--model grok-4.5-fast-xhigh`; everyday tier `-fast-high`) |
+| gpt-5.6 Sol    | 7    | 8\*          | 5     | codex CLI (`codex -m` Sol tier)  |
+| gpt-5.6 Terra  | 8    | 7\*          | 5     | codex CLI (default tier)         |
+| gpt-5.6 Luna   | 8    | 4\*          | 4     | codex CLI (`codex -m` Luna tier) |
+| sonnet-5       | 5    | 5            | 7     | Agent/Workflow `model: 'sonnet'` |
+| opus-4.8       | 4    | 7            | 8     | Agent/Workflow `model: 'opus'`   |
+| fable-5        | 2    | 9            | 9     | Agent/Workflow `model: 'fable'`  |
+
+\* Provisional (2026-07-11, unauditioned): GPT-5.6 replaced gpt-5.x with three tiers — **Sol** (flagship frontier reasoning), **Terra** (balanced daily driver), **Luna** (fast/lightweight for high-volume work). Ranked from OpenAI's positioning, not our own testing; audition before relying on them for anything intricate, and adjust these numbers to match observed output. Prose references to "gpt-5.6" without a tier mean Terra. Sol burns subscription limits faster — reach for it where you'd otherwise consider fable-5 for a codex-side task; use Luna only for trivial/mechanical work (where composer-2.5 is usually the better pick anyway).
 
 How to apply:
 
@@ -55,14 +59,14 @@ How to apply:
 - Cost is a tie-breaker only; when axes conflict for anything that ships, intelligence > taste > cost.
 - Bulk/mechanical work (clear-spec implementation, formatting sweeps, migrations, batch refactors): composer-2.5 or grok-4.5 via cursor-agent (grok audition 2026-07-08: passed a 9-file cross-module task with distinction — modifier-path suppression, circular-import defense, unprompted deterministic tie-breaking; prefer grok for trickier multi-file work, composer for pure mechanical) — it's effectively free and runs in an isolated worktree while you keep working.
 - Anything user-facing (SwiftBar menu labels, spoken-text prompts, character copy) needs taste ≥ 7: sonnet-5 minimum, opus-4.8/fable-5 preferred. The Gemini system prompts in `gemini.ts` and `dynamic-response.ts` directly shape what gets spoken — treat prompt edits as user-facing work.
-- Reviews of plans/implementations: fable-5 or opus-4.8, optionally composer-2.5 or gpt-5.x as an extra independent perspective (see the `codex-review` skill).
-- Never use Haiku. For trivial work (classification, log filtering, glue, bulk edits), use composer-2.5 or gpt-5.x — they're effectively free and better.
+- Reviews of plans/implementations: fable-5 or opus-4.8, optionally composer-2.5 or gpt-5.6 (Sol for deep reviews) as an extra independent perspective (see the `codex-review` skill).
+- Never use Haiku. For trivial work (classification, log filtering, glue, bulk edits), use composer-2.5 or gpt-5.6 Luna — they're effectively free and better.
 
 Mechanics:
 
 - **Check CLI availability before delegating** — `command -v agent` for cursor-agent, `command -v codex` for codex. If the CLI you want is missing, fall back to a Claude subagent via the Agent tool instead of telling the user to install anything.
 - composer-2.5 runs through the cursor-agent CLI: `agent --worktree -p --force "prompt"` (see the `cursor-agent` skill for full flags, spec-file workflow, and output formats). Always pass `--force` for tasks that write code; default model is composer, or pin with `--model composer-2.5`.
-- gpt-5.x runs through the codex CLI — `codex exec` / `codex review`. On this machine codex has the computer-use plugin set up and MCP servers connected (verify with `codex mcp list` if a task depends on a specific one). Use the `codex-review` and `codex-computer-use` skills; for work they don't cover (investigation, data analysis), run `codex exec -s read-only` directly with a self-contained prompt.
+- gpt-5.6 runs through the codex CLI (pin a tier with `codex -m`; default is Terra) — `codex exec` / `codex review`. On this machine codex has the computer-use plugin set up and MCP servers connected (verify with `codex mcp list` if a task depends on a specific one). Use the `codex-review` and `codex-computer-use` skills; for work they don't cover (investigation, data analysis), run `codex exec -s read-only` directly with a self-contained prompt.
 - Claude models (sonnet, opus, fable) run via the Agent/Workflow `model` parameter — no CLI needed.
 - Codex runs can exceed Bash's 10-minute timeout: pass an explicit timeout, or run in the background and poll for the report file.
 - Parallel implementation agents that write code must use `isolation: 'worktree'` so edits don't collide in the shared checkout.
