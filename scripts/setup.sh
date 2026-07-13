@@ -66,7 +66,7 @@ for script in \
     clean_text.py fetch_voices.py load_env.sh \
     paste_voice_id.sh generate_sfx.sh random_sfx.sh cleanup_played.sh \
     build_read_aloud_notifier_app.sh \
-    hook_stop.sh hook_prompt.sh hook_ask_user.sh tts-server.sh \
+    hook_stop.sh hook_prompt.sh hook_ask_user.sh tts-server.sh mobile_url.sh \
     set_streaming.sh set_playback_mode.sh set_mood.sh announce.sh replay.sh panel.sh \
     set_session_mute.sh set_session_voice.sh nickname.sh \
     ingest_claude_code.sh fetch_credits.sh \

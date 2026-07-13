@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Room of Devs</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --surface: #1a1d24;
+      --surface2: #242830;
+      --border: #2e3340;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --working: #4a9eff;
+      --hand: #e6a817;
+      --speaking: #3ecf8e;
+      --idle: #6b7280;
+      --danger: #ef4444;
+      --karaoke: #ffe566;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      min-height: 100%;
+    }
+    body { padding: 12px 12px 96px; }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    h1 {
+      font-size: 1.15rem;
+      font-weight: 650;
+      margin: 0;
+      letter-spacing: -0.02em;
+      flex: 1 1 auto;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--danger);
+      flex-shrink: 0;
+    }
+    .dot.live { background: var(--speaking); }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      width: 100%;
+    }
+    button {
+      min-height: 44px;
+      min-width: 44px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 560;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:active { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: #2a3a2e; border-color: #3a5a42; }
+    button.grant { background: #3a3218; border-color: #6a5820; color: #ffd666; }
+    .spotlight, .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .spotlight { display: none; }
+    .spotlight.on { display: block; }
+    .spotlight .row, .card .row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+      background: var(--surface2);
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .spotlight .avatar { width: 88px; height: 88px; }
+    .meta { flex: 1; min-width: 0; }
+    .name {
+      font-weight: 650;
+      font-size: 1.05rem;
+      margin: 0 0 4px;
+      word-break: break-word;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--surface2);
+      color: var(--muted);
+      margin-right: 4px;
+    }
+    .badge.working { color: #cfe4ff; background: #1a2e4a; }
+    .badge.hand_raised { color: #ffe9b0; background: #3a2e10; }
+    .badge.speaking { color: #c8ffe0; background: #163528; }
+    .badge.idle { color: #c5c9d0; background: #2a2e36; }
+    .chips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--surface2);
+      color: var(--muted);
+    }
+    .chip.raised { color: #ffe9b0; }
+    .chip.muted { color: #fca5a5; }
+    .karaoke {
+      margin-top: 10px;
+      line-height: 1.55;
+      font-size: 0.98rem;
+      color: var(--muted);
+      word-break: break-word;
+    }
+    .karaoke .w.on { color: var(--karaoke); font-weight: 650; }
+    .karaoke .w.past { color: var(--text); }
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .card-actions button { flex: 1; }
+    #sheet {
+      display: none;
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      background: #151820;
+      border-top: 1px solid var(--border);
+      border-radius: 16px 16px 0 0;
+      padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+      max-height: 42vh;
+      overflow: auto;
+      z-index: 20;
+      box-shadow: 0 -8px 32px rgba(0,0,0,0.45);
+    }
+    #sheet.open { display: block; }
+    #sheet .title {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      transform: translateX(-50%);
+      background: #2a2e36;
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 30;
+      white-space: nowrap;
+    }
+    #toast.show { opacity: 1; }
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 32px 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Room of Devs</h1>
+    <div id="conn" class="dot" title="connection"></div>
+    <div class="actions">
+      <button type="button" id="btn-pause" title="Pause">⏸ Pause</button>
+      <button type="button" id="btn-stop" title="Stop">⏹ Stop</button>
+      <button type="button" id="btn-hold" title="Hold room">✋ Hold</button>
+      <button type="button" id="btn-last" class="primary" title="Play last on phone">▶ Last</button>
+    </div>
+  </header>
+
+  <section id="spotlight" class="spotlight" aria-live="polite"></section>
+  <section id="members"></section>
+
+  <div id="sheet">
+    <p class="title">Playing on phone</p>
+    <div id="sheet-karaoke" class="karaoke"></div>
+  </div>
+  <div id="toast"></div>
+  <audio id="audio" preload="none"></audio>
+
+  <script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const conn = $("conn");
+  const spotlight = $("spotlight");
+  const members = $("members");
+  const sheet = $("sheet");
+  const sheetKaraoke = $("sheet-karaoke");
+  const audio = $("audio");
+  const toastEl = $("toast");
+
+  let snapshot = { agents: [], nowPlaying: null, roomHeld: false, paused: false };
+  let charactersPayload = { characters: {}, sessionVoices: {} };
+  let karaokeTimer = null;
+  let phoneKaraokeTimer = null;
+  let phoneMeta = null;
+  let toastTimer = null;
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+  }
+
+  async function postAction(body) {
+    const res = await fetch("/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) toast("Action failed");
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function avatarDir(agent) {
+    if (agent.character) return String(agent.character).toLowerCase();
+    const voices = charactersPayload.sessionVoices || {};
+    const chars = charactersPayload.characters || {};
+    const voiceId = voices[agent.sessionId];
+    if (voiceId && chars[voiceId]?.name) {
+      return String(chars[voiceId].name).toLowerCase();
+    }
+    return "default";
+  }
+
+  function avatarSrc(character, frame) {
+    return `/avatars/tmnt/${encodeURIComponent(character)}/${frame}.png`;
+  }
+
+  function isSpotlightActive(np) {
+    return !!(np && !np.endedAt && np.kind !== "ack" && np.text);
+  }
+
+  function karaokeHtml(text, alignment, startedAt, playbackRate) {
+    const rate = playbackRate && playbackRate > 0 ? playbackRate : 1;
+    const started = startedAt ? Date.parse(startedAt) : NaN;
+    const elapsed = Number.isFinite(started)
+      ? Math.max(0, (Date.now() - started) * rate)
+      : 0;
+
+    if (Array.isArray(alignment) && alignment.length) {
+      let active = -1;
+      for (let i = 0; i < alignment.length; i++) {
+        const startMs = alignment[i][1];
+        if (typeof startMs === "number" && startMs <= elapsed) active = i;
+      }
+      return alignment
+        .map(([word], i) => {
+          const cls = i === active ? "w on" : i < active ? "w past" : "w";
+          return `<span class="${cls}">${escapeHtml(word)}</span>`;
+        })
+        .join(" ");
+    }
+    return escapeHtml(text || "");
+  }
+
+  function renderSpotlight() {
+    const np = snapshot.nowPlaying;
+    if (!isSpotlightActive(np)) {
+      spotlight.classList.remove("on");
+      spotlight.innerHTML = "";
+      return;
+    }
+    const agent = (snapshot.agents || []).find((a) => a.sessionId === np.sessionId);
+    const character = agent ? avatarDir(agent) : "default";
+    const name = agent?.label || agent?.name || np.sessionId.slice(0, 8);
+    spotlight.classList.add("on");
+    spotlight.innerHTML = `
+      <div class="row">
+        <img class="avatar" src="${avatarSrc(character, "speaking")}" alt=""
+          onerror="this.src='${avatarSrc("default", "speaking")}'" />
+        <div class="meta">
+          <p class="name">${escapeHtml(name)}</p>
+          <span class="badge speaking">speaking</span>
+          <div class="karaoke" id="spot-karaoke"></div>
+        </div>
+      </div>`;
+    updateSpotKaraoke();
+  }
+
+  function updateSpotKaraoke() {
+    const el = document.getElementById("spot-karaoke");
+    const np = snapshot.nowPlaying;
+    if (!el || !isSpotlightActive(np)) return;
+    el.innerHTML = karaokeHtml(np.text, np.alignment, np.startedAt, np.playbackRate);
+  }
+
+  function renderMembers() {
+    const agents = snapshot.agents || [];
+    if (!agents.length) {
+      members.innerHTML = `<div class="empty">No agents in the room</div>`;
+      return;
+    }
+    members.innerHTML = agents
+      .map((agent) => {
+        const character = avatarDir(agent);
+        const frame = agent.state === "speaking" ? "speaking" : "idle";
+        const raisedBadge =
+          agent.state === "hand_raised"
+            ? `<span class="chip raised" title="Hand raised">✋</span>`
+            : "";
+        const queueChip =
+          agent.raisedCount > 0
+            ? `<span class="chip" title="Queued">${agent.raisedCount} queued</span>`
+            : "";
+        const mutedChip = agent.muted
+          ? `<span class="chip muted">muted</span>`
+          : "";
+        const grantBtn =
+          agent.state === "hand_raised"
+            ? `<button type="button" class="grant" data-grant="${escapeHtml(agent.sessionId)}">Grant</button>`
+            : "";
+        return `
+          <article class="card" data-session="${escapeHtml(agent.sessionId)}">
+            <div class="row">
+              <div style="position:relative">
+                <img class="avatar" src="${avatarSrc(character, frame)}" alt=""
+                  onerror="this.src='${avatarSrc("default", frame)}'" />
+                ${raisedBadge ? `<div style="position:absolute;right:-4px;top:-4px;font-size:1.1rem">✋</div>` : ""}
+              </div>
+              <div class="meta">
+                <p class="name">${escapeHtml(agent.label || agent.name)}</p>
+                <span class="badge ${escapeHtml(agent.state)}">${escapeHtml(
+                  String(agent.state).replace("_", " ")
+                )}</span>
+                <div class="chips">${queueChip}${mutedChip}${raisedBadge}</div>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="primary" data-play="${escapeHtml(
+                agent.sessionId
+              )}">▶ Play</button>
+              ${grantBtn}
+            </div>
+          </article>`;
+      })
+      .join("");
+  }
+
+  function render() {
+    renderSpotlight();
+    renderMembers();
+    $("btn-hold").textContent = snapshot.roomHeld ? "✋ Unhold" : "✋ Hold";
+  }
+
+  function tickKaraoke() {
+    updateSpotKaraoke();
+    if (phoneMeta && !audio.paused) updatePhoneKaraoke();
+  }
+
+  function updatePhoneKaraoke() {
+    if (!phoneMeta) return;
+    // audio.currentTime is media-timeline seconds (alignment is media-ms).
+    const elapsed = (audio.currentTime || 0) * 1000;
+    const alignment = phoneMeta.alignment;
+    const text = phoneMeta.spokenText || phoneMeta.textPreview || "";
+    if (Array.isArray(alignment) && alignment.length) {
+      let active = -1;
+      for (let i = 0; i < alignment.length; i++) {
+        const startMs = alignment[i][1];
+        if (typeof startMs === "number" && startMs <= elapsed) active = i;
+      }
+      sheetKaraoke.innerHTML = alignment
+        .map(([word], i) => {
+          const cls = i === active ? "w on" : i < active ? "w past" : "w";
+          return `<span class="${cls}">${escapeHtml(word)}</span>`;
+        })
+        .join(" ");
+    } else {
+      sheetKaraoke.textContent = text;
+    }
+  }
+
+  async function playReplayEntry(entry) {
+    if (!entry?.file) {
+      toast("No replay");
+      return;
+    }
+    phoneMeta = entry;
+    sheet.classList.add("open");
+    sheetKaraoke.textContent = entry.spokenText || entry.textPreview || "";
+    audio.src = `/replay-audio/${encodeURIComponent(entry.file)}`;
+    audio.playbackRate =
+      entry.playbackRate && entry.playbackRate > 0 ? entry.playbackRate : 1;
+    try {
+      await audio.play();
+    } catch {
+      toast("Tap again to play");
+    }
+  }
+
+  async function playForSession(sessionId) {
+    const res = await fetch("/replay-list");
+    if (!res.ok) {
+      toast("Replay list failed");
+      return;
+    }
+    const list = await res.json();
+    const entry = (list || []).find((e) => e.sessionId === sessionId);
+    if (!entry) {
+      toast("No replay for this member");
+      return;
+    }
+    await playReplayEntry(entry);
+  }
+
+  async function playLast() {
+    const res = await fetch("/replay-list");
+    if (!res.ok) {
+      toast("Replay list failed");
+      return;
+    }
+    const list = await res.json();
+    if (!list?.length) {
+      toast("No replays yet");
+      return;
+    }
+    await playReplayEntry(list[0]);
+  }
+
+  members.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const playId = t.getAttribute("data-play");
+    if (playId) {
+      playForSession(playId);
+      return;
+    }
+    const grantId = t.getAttribute("data-grant");
+    if (grantId) postAction({ type: "grant", sessionId: grantId });
+  });
+
+  $("btn-pause").addEventListener("click", () => postAction({ type: "pause" }));
+  $("btn-stop").addEventListener("click", () => postAction({ type: "stop" }));
+  $("btn-hold").addEventListener("click", () => postAction({ type: "hold_room" }));
+  $("btn-last").addEventListener("click", () => playLast());
+
+  audio.addEventListener("ended", () => {
+    sheet.classList.remove("open");
+    phoneMeta = null;
+  });
+  audio.addEventListener("pause", () => {
+    if (audio.ended || !audio.src) sheet.classList.remove("open");
+  });
+
+  function connectSse() {
+    const es = new EventSource("/events");
+    es.onopen = () => conn.classList.add("live");
+    es.onerror = () => conn.classList.remove("live");
+    es.onmessage = (ev) => {
+      try {
+        snapshot = JSON.parse(ev.data);
+        render();
+      } catch {
+        /* ignore */
+      }
+    };
+  }
+
+  async function boot() {
+    try {
+      const [snapRes, charsRes] = await Promise.all([
+        fetch("/snapshot"),
+        fetch("/characters"),
+      ]);
+      if (snapRes.ok) snapshot = await snapRes.json();
+      if (charsRes.ok) charactersPayload = await charsRes.json();
+    } catch {
+      /* SSE will fill in */
+    }
+    render();
+    connectSse();
+    karaokeTimer = setInterval(tickKaraoke, 80);
+  }
+
+  boot();
+})();
+  </script>
+</body>
+</html>

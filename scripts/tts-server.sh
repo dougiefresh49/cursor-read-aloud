@@ -24,6 +24,17 @@ sync_source() {
     if [ -d "$REPO_SERVER_DIR/src" ]; then
         cp "$REPO_SERVER_DIR"/src/*.ts "$SERVER_DIR/src/" 2>/dev/null || true
         cp "$REPO_SERVER_DIR"/src/*.json "$SERVER_DIR/src/" 2>/dev/null || true
+        # Mobile room page (served by mobile-http.ts)
+        if [ -f "$REPO_SERVER_DIR/mobile.html" ]; then
+            cp "$REPO_SERVER_DIR/mobile.html" "$SERVER_DIR/mobile.html"
+        fi
+        # Avatar frames for LAN mobile clients
+        REPO_AVATARS="$(dirname "$REPO_SERVER_DIR")/panel/public/avatars"
+        if [ -d "$REPO_AVATARS" ]; then
+            mkdir -p "$TTS_DIR/mobile-assets/avatars"
+            rsync -a --delete "$REPO_AVATARS"/ "$TTS_DIR/mobile-assets/avatars/" 2>/dev/null || \
+                cp -R "$REPO_AVATARS"/. "$TTS_DIR/mobile-assets/avatars/" 2>/dev/null || true
+        fi
         # Sync package.json too; reinstall deps only when it actually changed
         if [ -f "$REPO_SERVER_DIR/package.json" ] && \
            ! diff -q "$REPO_SERVER_DIR/package.json" "$SERVER_DIR/package.json" >/dev/null 2>&1; then

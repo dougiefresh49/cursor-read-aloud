@@ -48,6 +48,8 @@ export interface Config {
   arcade_enabled: boolean;
   // Agent panel WebSocket port (panel-ws.ts). 0 = disabled.
   panel_port: number;
+  // LAN mobile room HTTP port (mobile-http.ts). 0 = disabled. Default 4785.
+  mobile_port: number;
   // Experimental: auto-hold the room while a meeting app is frontmost/recent.
   dnd_auto: boolean;
   dnd_apps: string[];
@@ -69,6 +71,7 @@ const DEFAULTS: Config = {
   dynamic_responses: "always",
   arcade_enabled: false,
   panel_port: 4780,
+  mobile_port: 4785,
   dnd_auto: false,
   dnd_apps: ["zoom.us", "FaceTime", "Microsoft Teams", "Webex"],
   victory_lines: true,

@@ -31,6 +31,7 @@ import { seedStateOnStartup } from "./state.js";
 import { maybeFireDeferredAnnounce } from "./announce.js";
 import { startHid, stopHid } from "./hid.js";
 import { startPanelWs, stopPanelWs } from "./panel-ws.js";
+import { startMobileHttp, stopMobileHttp } from "./mobile-http.js";
 import { startDnd, stopDnd } from "./dnd.js";
 import { log } from "./logger.js";
 
@@ -332,6 +333,9 @@ if (loadConfig().arcade_enabled) startHid();
 // Agent panel WebSocket (panel-ws.ts) — inert unless panel_port > 0.
 if (loadConfig().panel_port > 0) startPanelWs();
 
+// LAN mobile room HTTP (mobile-http.ts) — inert unless mobile_port > 0.
+if (loadConfig().mobile_port > 0) startMobileHttp();
+
 // Experimental meeting auto-hold — inert unless dnd_auto.
 if (loadConfig().dnd_auto) startDnd();
 
@@ -352,6 +356,7 @@ process.on("SIGTERM", () => {
   watcher.close();
   stopDnd();
   stopHid();
+  stopMobileHttp();
   stopPanelWs();
   stopCurrent();
   process.exit(0);
@@ -362,6 +367,7 @@ process.on("SIGINT", () => {
   watcher.close();
   stopDnd();
   stopHid();
+  stopMobileHttp();
   stopPanelWs();
   stopCurrent();
   process.exit(0);

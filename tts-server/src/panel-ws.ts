@@ -717,6 +717,17 @@ function killTeam(sessionId: string): void {
   safe(broadcastSnapshot);
 }
 
+const MOBILE_ACTION_TYPES = new Set([
+  "grant",
+  "replay",
+  "replay_slower",
+  "replay_session",
+  "pause",
+  "stop",
+  "hold_room",
+  "status_say",
+]);
+
 function dispatch(msg: PanelMessage): void {
   switch (msg.type) {
     case "grant":
@@ -760,6 +771,23 @@ function dispatch(msg: PanelMessage): void {
       }
       return;
   }
+}
+
+/** Mobile HTTP whitelist + validate + dispatch. Returns false on reject. */
+export function dispatchPanelAction(raw: unknown): boolean {
+  const msg = validatePanelMessage(raw);
+  if (msg === "bad_message") return false;
+  if (!MOBILE_ACTION_TYPES.has(msg.type)) return false;
+
+  if (
+    (msg.type === "grant" || msg.type === "status_say") &&
+    !sessionInSnapshot(msg.sessionId)
+  ) {
+    return false;
+  }
+
+  dispatch(msg);
+  return true;
 }
 
 function handleMessage(ws: WebSocket, raw: unknown): void {
