@@ -635,17 +635,29 @@
       .filter((v) => typeof v === "string")
       .map((v) => v.trim())
       .filter(Boolean);
-    return new Set(norm);
+    const set = new Set(norm);
+    // Write back normalization (dedup/trim) so storage never stays dirty.
+    if (norm.length !== parsed.length || set.size !== norm.length) {
+      try {
+        localStorage.setItem(HIDDEN_DEVS_KEY, JSON.stringify([...set].sort()));
+      } catch {
+        /* keep in-memory set */
+      }
+    }
+    return set;
   }
 
+  /** Persist the set; returns false (and toasts) if storage rejected it. */
   function saveHiddenDevNames() {
     try {
       localStorage.setItem(
         HIDDEN_DEVS_KEY,
         JSON.stringify([...hiddenDevNames].sort())
       );
+      return true;
     } catch {
       toast("Could not save hidden devs");
+      return false;
     }
   }
 
@@ -1312,7 +1324,12 @@
 
     if (hidden) hiddenDevNames.add(name);
     else hiddenDevNames.delete(name);
-    saveHiddenDevNames();
+    if (!saveHiddenDevNames()) {
+      // Storage rejected it — roll back so UI and persistence agree.
+      if (hidden) hiddenDevNames.delete(name);
+      else hiddenDevNames.add(name);
+      return;
+    }
 
     if (hidden) {
       if (phoneMeta && entryRawName(phoneMeta) === name) {
