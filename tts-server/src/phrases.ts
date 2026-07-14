@@ -116,7 +116,13 @@ export async function playRandomPhrase(
   const pick = files[Math.floor(Math.random() * files.length)];
   log("phrases", `Playing: ${pick}`);
   const buf = readFileSync(pick);
-  await playMp3Buffer(buf, ctx);
+  // Cached acks must carry kind:"ack" like their Gemini-generated twins, or
+  // the panel's stage gate can't tell "on it" from a real update.
+  const meta =
+    kind === "ack"
+      ? { source: "phrase", kind: "ack" as const, timestamp: new Date().toISOString() }
+      : undefined;
+  await playMp3Buffer(buf, ctx, meta);
   return true;
 }
 
