@@ -11,6 +11,7 @@ import {
   loadMutedSessions,
   lookupSessionName,
   getActiveSessions,
+  SESSIONS_DIR,
 } from "./config.js";
 import { processWithGemini, fallbackClean } from "./gemini.js";
 import { streamTTS, streamTTSWithTimestamps, resolveVoiceId } from "./elevenlabs.js";
@@ -28,6 +29,7 @@ import {
 } from "./audio.js";
 import { getPhrasesForVoice, playRandomPhrase } from "./phrases.js";
 import { seedStateOnStartup } from "./state.js";
+import { reconcileSessionLineage } from "./session-lineage.js";
 import { maybeFireDeferredAnnounce } from "./announce.js";
 import { startHid, stopHid } from "./hid.js";
 import { startPanelWs, stopPanelWs } from "./panel-ws.js";
@@ -319,6 +321,11 @@ if (command === "once") {
 mkdirSync(QUEUE_DIR, { recursive: true });
 mkdirSync(PLAYED_DIR, { recursive: true });
 
+// Migrate sessionId-keyed state for any /clear that rotated an id while the
+// daemon was down — MUST run before seedStateOnStartup, which would otherwise
+// prune the rotated session's card (and strand its voice binding) as dead.
+reconcileSessionLineage();
+
 // Reconcile per-session room state against ~/.claude/sessions so the menu/LEDs
 // reflect live sessions immediately, not an empty room until each fires a hook.
 seedStateOnStartup();
@@ -351,9 +358,27 @@ watcher.on("add", (path) => {
   drainQueue();
 });
 
+// Watch the Claude Code session registry for in-place sessionId rotations
+// (/clear keeps the pid file, swaps the id). Registry files also churn on
+// every busy/idle flip, so debounce; reconcile itself no-ops when nothing
+// rotated.
+let lineageTimer: ReturnType<typeof setTimeout> | null = null;
+const sessionsWatcher = watch(SESSIONS_DIR, { ignoreInitial: true, depth: 0 });
+for (const evt of ["add", "change", "unlink"] as const) {
+  sessionsWatcher.on(evt, (path: string) => {
+    if (!path.endsWith(".json")) return;
+    if (lineageTimer) clearTimeout(lineageTimer);
+    lineageTimer = setTimeout(() => {
+      lineageTimer = null;
+      reconcileSessionLineage();
+    }, 500);
+  });
+}
+
 process.on("SIGTERM", () => {
   log("server", "SIGTERM — shutting down");
   watcher.close();
+  sessionsWatcher.close();
   stopDnd();
   stopHid();
   stopMobileHttp();
@@ -365,6 +390,7 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   log("server", "SIGINT — shutting down");
   watcher.close();
+  sessionsWatcher.close();
   stopDnd();
   stopHid();
   stopMobileHttp();

@@ -10,7 +10,8 @@ export const TTS_DIR =
 export const QUEUE_DIR = join(TTS_DIR, "queue");
 export const PLAYED_DIR = join(TTS_DIR, "played");
 export const LOG_FILE = join(TTS_DIR, "logs", "hook.log");
-export const SESSIONS_DIR = join(homedir(), ".claude", "sessions");
+export const SESSIONS_DIR =
+  process.env.SESSIONS_DIR_OVERRIDE ?? join(homedir(), ".claude", "sessions");
 export const CONFIG_PATH = join(TTS_DIR, "config.json");
 export const SESSION_VOICES_PATH = join(TTS_DIR, "session_voices.json");
 export const MUTED_SESSIONS_PATH = join(TTS_DIR, "muted_sessions.json");
