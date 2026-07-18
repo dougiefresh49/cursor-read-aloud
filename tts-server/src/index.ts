@@ -24,6 +24,7 @@ import {
   acquireLock,
   stopCurrent,
   playStreamBuffer,
+  awaitPendingDrain,
   activePhoneGrantId,
   type ReplayMeta,
   type PlaybackContext,
@@ -334,6 +335,9 @@ if (command === "once") {
     process.exit(1);
   }
   await processQueueFile(file);
+  // Early-stop handoff leaves a detached stream drain running — the complete
+  // replay file only exists once it finishes. Never exit before it does.
+  await awaitPendingDrain();
   // Grant / manual play settled — same deferred-announce check as the daemon
   // drain, so a hand that deferred while this item played gets its nudge. During
   // a multi-item drain (grant_floor.sh), CR_SUPPRESS_DEFERRED is set on every

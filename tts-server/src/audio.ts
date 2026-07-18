@@ -305,6 +305,14 @@ function stampReplayFileCas(
   } catch {}
 }
 
+// Early-stop drains outlive playStreamBuffer's resolution. The `once` process
+// exits right after playback settles — it must await this first, or the drain
+// (and the complete replay file) dies with the process.
+let pendingDrain: Promise<void> | null = null;
+export function awaitPendingDrain(): Promise<void> {
+  return pendingDrain ?? Promise.resolve();
+}
+
 export function stopCurrent(): void {
   if (currentProcess && !currentProcess.killed) {
     // A paused (SIGSTOPped) player never receives SIGTERM — resume first,
@@ -618,6 +626,9 @@ export function playStreamBuffer(
     let playerClosed = false;
     let replaySaved = false;
     let drainDeadline: number | null = null;
+    // Holder object: the resolver is assigned inside the close callback, which
+    // TS flow analysis can't see — a plain let narrows to never at the call.
+    const drain: { done: (() => void) | null } = { done: null };
 
     const saveAndStampReplay = () => {
       if (replaySaved || replayChunks.length === 0) return;
@@ -669,6 +680,9 @@ export function playStreamBuffer(
       // Early stop (stop button / handoff): free the room immediately; a
       // detached drain keeps filling replayChunks and saves on completion/cap.
       drainDeadline = Date.now() + DRAIN_CAP_MS;
+      pendingDrain = new Promise<void>((r) => {
+        drain.done = r;
+      });
       releaseLock();
       settle(code ?? 0);
     });
@@ -712,6 +726,8 @@ export function playStreamBuffer(
         // Drain blew up after early stop — still persist what we buffered.
         saveAndStampReplay();
       }
+    } finally {
+      drain.done?.();
     }
   });
 }
