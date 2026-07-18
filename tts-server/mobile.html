@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>Room of Devs</title>
   <style>
@@ -18,9 +18,10 @@
       --speaking: #3ecf8e;
       --idle: #6b7280;
       --danger: #ef4444;
+      --amber: #e6a817;
       --karaoke: #ffe566;
       --accent: #3ecf8e;
-      --player-h: 118px;
+      --player-h: 76px;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -37,12 +38,13 @@
     body.player-hidden {
       padding-bottom: calc(16px + env(safe-area-inset-bottom));
     }
-    header {
+
+    /* ---------------- Header ---------------- */
+    header { margin-bottom: 14px; }
+    .titlebar {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
       gap: 10px;
-      margin-bottom: 14px;
     }
     h1 {
       font-size: 1.15rem;
@@ -59,35 +61,58 @@
       flex-shrink: 0;
     }
     .dot.live { background: var(--speaking); }
-    .mac-cluster {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 6px;
-      width: 100%;
-      padding: 6px 8px;
+    .icon-btn {
+      min-height: 44px;
+      min-width: 44px;
+      padding: 0 10px;
+      font-size: 1.25rem;
+      line-height: 1;
+      background: transparent;
       border: 1px solid var(--border);
       border-radius: 10px;
-      background: transparent;
-      opacity: 0.72;
+      color: var(--text);
     }
-    .mac-label {
-      font-size: 0.72rem;
+    .held-pill {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      min-height: 44px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: #3a2e10;
+      border: 1px solid #6a5820;
+      color: #ffe0a0;
+      font-size: 0.9rem;
       font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-right: 2px;
+      text-align: left;
     }
-    .mac-cluster button {
-      min-height: 36px;
-      min-width: 36px;
-      padding: 6px 10px;
-      font-size: 0.85rem;
-      background: var(--surface);
-      border-color: #3a3f4a;
-      color: var(--muted);
+
+    /* ---------------- Menus / popovers ---------------- */
+    .menu {
+      position: fixed;
+      z-index: 40;
+      background: #1c2029;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 6px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+      min-width: 180px;
     }
+    .menu-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      min-height: 44px;
+      padding: 10px 12px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.92rem;
+      font-weight: 550;
+    }
+    .menu-item:active { background: var(--surface2); }
+
     button {
       min-height: 44px;
       min-width: 44px;
@@ -103,18 +128,18 @@
     }
     button:active { opacity: 0.85; }
     button:disabled { opacity: 0.4; cursor: default; }
-    button.primary { background: #2a3a2e; border-color: #3a5a42; }
-    button.grant { background: #3a3218; border-color: #6a5820; color: #ffd666; }
-    .spotlight, .card {
+    button.accent { background: #2a3a2e; border-color: #3a5a42; color: #d4ffe4; }
+    button.ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+
+    /* ---------------- Cards ---------------- */
+    .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 14px;
       margin-bottom: 12px;
     }
-    .spotlight { display: none; }
-    .spotlight.on { display: block; }
-    .spotlight .row, .card .row {
+    .card .row {
       display: flex;
       gap: 12px;
       align-items: flex-start;
@@ -132,7 +157,6 @@
       height: 36px;
       border-radius: 8px;
     }
-    .spotlight .avatar { width: 88px; height: 88px; }
     .meta { flex: 1; min-width: 0; }
     .name {
       font-weight: 650;
@@ -156,6 +180,8 @@
     .badge.hand_raised { color: #ffe9b0; background: #3a2e10; }
     .badge.speaking { color: #c8ffe0; background: #163528; }
     .badge.idle { color: #c5c9d0; background: #2a2e36; }
+    .badge.speaking.pulse { animation: pulse 1.3s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
     .chips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
     .chip {
       font-size: 0.75rem;
@@ -166,8 +192,16 @@
     }
     .chip.raised { color: #ffe9b0; }
     .chip.muted { color: #fca5a5; }
+    .waiting {
+      margin-top: 6px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .waiting em { color: #cbd0d6; font-style: italic; }
+
     .karaoke {
-      margin-top: 10px;
       line-height: 1.55;
       font-size: 0.98rem;
       color: var(--muted);
@@ -175,21 +209,58 @@
     }
     .karaoke .w.on { color: var(--karaoke); font-weight: 650; }
     .karaoke .w.past { color: var(--text); }
+
     .card-actions {
       display: flex;
       gap: 8px;
       margin-top: 12px;
     }
-    .card-actions button { flex: 1; }
-
-    .messages {
-      margin-top: 8px;
-      margin-bottom: 8px;
+    .card-actions .grow { flex: 1; }
+    .read-update .sub {
+      display: block;
+      font-weight: 500;
+      font-size: 0.72rem;
+      opacity: 0.85;
+      margin-top: 2px;
     }
+
+    /* ---------------- Reply ---------------- */
+    .reply-box {
+      margin-top: 10px;
+    }
+    .reply-box[hidden] { display: none; }
+    .reply-input {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+    .reply-input:focus { outline: none; border-color: var(--accent); }
+    .reply-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .reply-actions button { min-height: 40px; }
+    .reply-hint {
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    /* ---------------- Messages ---------------- */
+    .messages { margin-top: 8px; margin-bottom: 8px; }
     .messages-header {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 10px;
     }
     .messages-header h2 {
@@ -259,104 +330,7 @@
     }
     .unheard.hidden { visibility: hidden; }
 
-    #player {
-      display: none;
-      position: fixed;
-      left: 0; right: 0; bottom: 0;
-      z-index: 25;
-      background: #12151c;
-      border-top: 1px solid var(--border);
-      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-      box-shadow: 0 -8px 28px rgba(0,0,0,0.4);
-    }
-    #player.on { display: block; }
-    .player-now {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-      min-height: 22px;
-    }
-    .player-now-btn {
-      flex: 1;
-      min-width: 0;
-      min-height: 28px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      text-align: left;
-      font-size: 0.85rem;
-      font-weight: 560;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .btn-latest {
-      flex-shrink: 0;
-      min-height: 32px;
-      min-width: auto;
-      padding: 4px 10px;
-      font-size: 0.75rem;
-      background: var(--surface2);
-    }
-    .progress-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .time {
-      font-size: 0.7rem;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-      min-width: 32px;
-    }
-    .time.end { text-align: right; }
-    .progress {
-      flex: 1;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .progress-track {
-      width: 100%;
-      height: 4px;
-      border-radius: 2px;
-      background: var(--surface2);
-      position: relative;
-      overflow: hidden;
-      pointer-events: none;
-    }
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: var(--accent);
-      border-radius: 2px;
-    }
-    .player-controls {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 16px;
-    }
-    .player-controls button {
-      min-width: 48px;
-      min-height: 48px;
-      font-size: 1.15rem;
-      border-radius: 12px;
-      background: var(--surface2);
-    }
-    .player-controls #btn-pp {
-      min-width: 56px;
-      min-height: 56px;
-      background: #2a3a2e;
-      border-color: #3a5a42;
-      font-size: 1.25rem;
-    }
-
+    /* ---------------- New-message pill ---------------- */
     #new-pill {
       display: none;
       position: fixed;
@@ -380,33 +354,282 @@
       bottom: calc(16px + env(safe-area-inset-bottom));
     }
 
-    #sheet {
+    /* ---------------- Mini player ---------------- */
+    #mini {
       display: none;
       position: fixed;
-      left: 0; right: 0;
-      bottom: calc(var(--player-h) + env(safe-area-inset-bottom));
+      left: 0; right: 0; bottom: 0;
+      z-index: 25;
+      align-items: center;
+      gap: 10px;
+      background: #12151c;
+      border-top: 1px solid var(--border);
+      padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+      box-shadow: 0 -8px 28px rgba(0,0,0,0.4);
+    }
+    #mini.on { display: flex; }
+    .mini-tap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      padding: 0;
+      text-align: left;
+    }
+    .mini-body { flex: 1; min-width: 0; }
+    .mini-name {
+      font-size: 0.9rem;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mini-sub {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+    }
+    .mini-device {
+      font-size: 0.72rem;
+      font-weight: 650;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .mini-device.mac { color: var(--accent); }
+    .mini-preview {
+      font-size: 0.78rem;
+      color: var(--muted);
+      overflow: hidden;
+      white-space: nowrap;
+      min-width: 0;
+      flex: 1;
+    }
+    .mini-preview .inner { display: inline-block; }
+    .mini-preview.scroll .inner { animation: marquee 14s linear infinite; }
+    @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+    #mini-pp {
+      flex-shrink: 0;
+      min-width: 48px;
+      min-height: 48px;
+      font-size: 1.15rem;
+      border-radius: 12px;
+      background: #2a3a2e;
+      border-color: #3a5a42;
+    }
+
+    /* ---------------- Expanded player ---------------- */
+    #expanded {
+      position: fixed;
+      inset: 0;
+      z-index: 45;
+      background: #12151c;
+      display: flex;
+      flex-direction: column;
+      padding: 8px 18px calc(18px + env(safe-area-inset-bottom));
+      transform: translateY(100%);
+      transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+      overflow-y: auto;
+      will-change: transform;
+    }
+    #expanded.open { transform: translateY(0); }
+    .exp-grab {
+      width: 40px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      margin: 6px auto 4px;
+      flex-shrink: 0;
+    }
+    .exp-collapse {
+      align-self: flex-start;
+      min-width: 44px;
+      min-height: 44px;
+      font-size: 1.4rem;
+      line-height: 1;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 0 6px;
+    }
+    .exp-avatar {
+      width: min(56vw, 240px);
+      height: min(56vw, 240px);
+      border-radius: 20px;
+      object-fit: cover;
+      background: var(--surface2);
+      margin: 8px auto 16px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+    }
+    .exp-name {
+      font-size: 1.3rem;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 12px;
+      word-break: break-word;
+    }
+    .exp-device-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .seg {
+      min-height: 40px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .seg.active { background: #2a3a2e; border-color: #3a5a42; color: #d4ffe4; }
+    #exp-karaoke {
+      flex: 0 1 auto;
+      margin-bottom: 16px;
+      max-height: 30vh;
+      overflow-y: auto;
+    }
+    .progress-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .time {
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 34px;
+    }
+    .time.end { text-align: right; }
+    .progress {
+      flex: 1;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .progress.seekable { cursor: pointer; }
+    .progress-track {
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--surface2);
+      position: relative;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+    .player-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 16px;
+    }
+    .player-controls button {
+      min-width: 52px;
+      min-height: 52px;
+      font-size: 1.2rem;
+      border-radius: 14px;
+      background: var(--surface2);
+    }
+    .player-controls #btn-pp {
+      min-width: 64px;
+      min-height: 64px;
+      background: #2a3a2e;
+      border-color: #3a5a42;
+      font-size: 1.35rem;
+    }
+    #exp-reply-wrap { margin-top: auto; }
+
+    /* ---------------- Session picker ---------------- */
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 48;
+      background: rgba(0,0,0,0.5);
+    }
+    .backdrop[hidden] { display: none; }
+    .picker-sheet {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      z-index: 49;
       background: #151820;
       border-top: 1px solid var(--border);
-      border-radius: 16px 16px 0 0;
-      padding: 14px;
-      max-height: 38vh;
-      overflow: auto;
-      z-index: 20;
-      box-shadow: 0 -8px 32px rgba(0,0,0,0.45);
+      border-radius: 18px 18px 0 0;
+      padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
+      max-height: 82vh;
+      overflow-y: auto;
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
     }
-    #sheet.open { display: block; }
-    #sheet .title {
-      font-size: 0.8rem;
+    .picker-sheet.open { transform: translateY(0); }
+    .picker-sheet[hidden] { display: none; }
+    .picker-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .tab {
+      flex: 1;
+      min-height: 42px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
       color: var(--muted);
-      margin: 0 0 8px;
+      font-weight: 600;
+    }
+    .tab.active { background: #2a3a2e; border-color: #3a5a42; color: #d4ffe4; }
+    .picker-section-label {
+      font-size: 0.72rem;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
+      margin: 4px 0 8px;
     }
+    #picker-personas { margin-bottom: 14px; }
+    .persona-chip {
+      min-height: 40px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .persona-chip.active { background: #2a3a2e; border-color: #3a5a42; color: #d4ffe4; }
+    .picker-row {
+      display: block;
+      width: 100%;
+      text-align: left;
+      min-height: 56px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .picker-row-label { font-weight: 650; font-size: 0.92rem; word-break: break-word; }
+    .picker-row-sub { font-size: 0.76rem; color: var(--muted); word-break: break-all; }
+
+    /* ---------------- Toast ---------------- */
     #toast {
       position: fixed;
       left: 50%;
       bottom: calc(var(--player-h) + env(safe-area-inset-bottom) + 12px);
       transform: translateX(-50%);
+      max-width: 90vw;
       background: #2a2e36;
       color: var(--text);
       padding: 10px 16px;
@@ -415,13 +638,14 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s;
-      z-index: 30;
-      white-space: nowrap;
+      z-index: 60;
+      text-align: center;
     }
     body.player-hidden #toast {
       bottom: calc(28px + env(safe-area-inset-bottom));
     }
     #toast.show { opacity: 1; }
+
     .empty {
       color: var(--muted);
       text-align: center;
@@ -429,9 +653,9 @@
     }
     .messages .empty { padding: 16px 12px; font-size: 0.9rem; }
 
-    /* Native hidden attribute must win over section display rules. */
     [hidden] { display: none !important; }
 
+    /* ---------------- Hidden devs (preserved) ---------------- */
     .card-member-row {
       display: flex;
       gap: 12px;
@@ -452,7 +676,6 @@
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
-
     .hidden-devs { margin: -4px 0 14px; }
     .hidden-devs:not([hidden]) { display: block; }
     .hidden-devs-toggle {
@@ -493,39 +716,27 @@
     .hidden-dev-row + .hidden-dev-row {
       border-top: 1px solid var(--border);
     }
-    .hidden-dev-identity {
-      flex: 1;
-      min-width: 0;
-    }
-    .hidden-dev-label {
-      font-weight: 650;
-      word-break: break-word;
-    }
-    .hidden-dev-name {
-      font-size: 0.8rem;
-      color: var(--muted);
-      word-break: break-word;
-    }
-    .btn-show-dev {
-      flex: 0 0 auto;
-      min-width: 44px;
-      min-height: 44px;
-    }
+    .hidden-dev-identity { flex: 1; min-width: 0; }
+    .hidden-dev-label { font-weight: 650; word-break: break-word; }
+    .hidden-dev-name { font-size: 0.8rem; color: var(--muted); word-break: break-word; }
+    .btn-show-dev { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
   </style>
 </head>
 <body class="player-hidden">
   <header>
-    <h1>Room of Devs</h1>
-    <div id="conn" class="dot" title="connection"></div>
-    <div class="mac-cluster" aria-label="Mac audio controls">
-      <span class="mac-label">Mac audio:</span>
-      <button type="button" id="btn-pause" title="Pause Mac playback">⏸</button>
-      <button type="button" id="btn-stop" title="Stop Mac playback">⏹</button>
-      <button type="button" id="btn-hold" title="Hold room">✋</button>
+    <div class="titlebar">
+      <h1>Room of Devs</h1>
+      <div id="conn" class="dot" title="connection"></div>
+      <button type="button" id="btn-new" class="icon-btn" title="New session" aria-label="New session">＋</button>
+      <button type="button" id="btn-overflow" class="icon-btn" title="More" aria-label="More">⋮</button>
     </div>
+    <button type="button" id="held-pill" class="held-pill" hidden>Room held ✋ — tap to resume</button>
   </header>
 
-  <section id="spotlight" class="spotlight" aria-live="polite"></section>
+  <div id="overflow-menu" class="menu" hidden>
+    <button type="button" id="mi-hold" class="menu-item">Hold room</button>
+  </div>
+
   <section id="members"></section>
 
   <section id="hidden-devs" class="hidden-devs" hidden>
@@ -537,18 +748,40 @@
   <section class="messages" id="messages-section">
     <div class="messages-header">
       <h2>Messages</h2>
-      <button type="button" id="btn-catchup" class="primary" style="display:none">Catch up</button>
+      <button type="button" id="btn-clear" class="ghost" style="display:none">Clear</button>
+      <button type="button" id="btn-catchup" class="accent" style="display:none">Catch up</button>
     </div>
     <div id="messages"></div>
   </section>
 
   <button type="button" id="new-pill">▶ New message</button>
 
-  <div id="player">
-    <div class="player-now">
-      <button type="button" class="player-now-btn" id="btn-now" title="Toggle lyrics">—</button>
-      <button type="button" class="btn-latest" id="btn-latest" style="display:none" title="Play newest">⤒ Latest</button>
+  <!-- Docked mini-player -->
+  <div id="mini">
+    <button type="button" class="mini-tap" id="mini-tap" title="Expand">
+      <img id="mini-avatar" class="avatar sm" alt="" />
+      <div class="mini-body">
+        <div id="mini-name" class="mini-name">—</div>
+        <div class="mini-sub">
+          <span id="mini-device" class="mini-device"></span>
+          <span id="mini-preview" class="mini-preview"><span class="inner"></span></span>
+        </div>
+      </div>
+    </button>
+    <button type="button" id="mini-pp" title="Play/Pause">▶</button>
+  </div>
+
+  <!-- Full-screen expanded player -->
+  <div id="expanded" aria-hidden="true">
+    <div class="exp-grab" id="exp-grab"></div>
+    <button type="button" id="exp-collapse" class="exp-collapse" aria-label="Collapse">⌄</button>
+    <img id="exp-avatar" class="exp-avatar" alt="" />
+    <div id="exp-name" class="exp-name"></div>
+    <div class="exp-device-row" id="exp-device-row">
+      <button type="button" class="seg" data-device="mac">Mac · Room</button>
+      <button type="button" class="seg" data-device="phone">This phone</button>
     </div>
+    <div id="exp-karaoke" class="karaoke"></div>
     <div class="progress-row">
       <span class="time" id="time-elapsed">0:00</span>
       <div class="progress" id="progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -558,63 +791,173 @@
     </div>
     <div class="player-controls">
       <button type="button" id="btn-prev" title="Previous (newer)">⏮</button>
+      <button type="button" id="btn-stop" title="Stop" hidden>⏹</button>
       <button type="button" id="btn-pp" title="Play/Pause">▶</button>
       <button type="button" id="btn-next" title="Next (older)">⏭</button>
     </div>
+    <div id="exp-reply-wrap"></div>
   </div>
 
-  <div id="sheet">
-    <p class="title">Playing on phone</p>
-    <div id="sheet-karaoke" class="karaoke"></div>
+  <!-- Session picker -->
+  <div id="picker-backdrop" class="backdrop" hidden></div>
+  <div id="picker" class="picker-sheet" hidden>
+    <div class="picker-tabs">
+      <button type="button" class="tab active" data-tab="new">New</button>
+      <button type="button" class="tab" data-tab="resume">Resume</button>
+    </div>
+    <div class="picker-section-label">Persona</div>
+    <div id="picker-personas" class="chips"></div>
+    <div id="picker-list"></div>
   </div>
+
   <div id="toast"></div>
   <audio id="audio" preload="none"></audio>
 
   <script>
 (() => {
   const $ = (id) => document.getElementById(id);
+  const SILENT_WAV = "data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
   const conn = $("conn");
-  const spotlight = $("spotlight");
   const members = $("members");
   const messagesEl = $("messages");
-  const sheet = $("sheet");
-  const sheetKaraoke = $("sheet-karaoke");
   const audio = $("audio");
   const toastEl = $("toast");
-  const player = $("player");
+  const mini = $("mini");
+  const miniAvatar = $("mini-avatar");
+  const miniName = $("mini-name");
+  const miniDevice = $("mini-device");
+  const miniPreview = $("mini-preview");
+  const miniPp = $("mini-pp");
+  const expanded = $("expanded");
+  const expAvatar = $("exp-avatar");
+  const expName = $("exp-name");
+  const expKaraoke = $("exp-karaoke");
+  const expDeviceRow = $("exp-device-row");
+  const expReplyWrap = $("exp-reply-wrap");
   const progressFill = $("progress-fill");
   const btnCatchup = $("btn-catchup");
+  const btnClear = $("btn-clear");
   const newPill = $("new-pill");
-  const btnLatest = $("btn-latest");
   const btnPp = $("btn-pp");
-  const btnNow = $("btn-now");
+  const btnPrev = $("btn-prev");
+  const btnNext = $("btn-next");
+  const btnStop = $("btn-stop");
   const hiddenDevs = $("hidden-devs");
   const btnHiddenDevs = $("btn-hidden-devs");
   const hiddenDevsList = $("hidden-devs-list");
+  const overflowMenu = $("overflow-menu");
+  const heldPill = $("held-pill");
+  const picker = $("picker");
+  const pickerBackdrop = $("picker-backdrop");
+  const pickerPersonas = $("picker-personas");
+  const pickerList = $("picker-list");
 
   const LISTENED_KEY = "mobile_listened_files";
+  const CLEARED_KEY = "mobile_cleared_files";
   const HIDDEN_DEVS_KEY = "mobile_hidden_dev_names_v1";
+  const OUTPUT_KEY = "mobile_output_device";
   const INITIAL_HIDDEN_DEV_NAMES = ["job-search-2026"];
 
   let snapshot = { agents: [], nowPlaying: null, roomHeld: false, paused: false };
   let charactersPayload = { characters: {}, sessionVoices: {} };
   let karaokeTimer = null;
-  let phoneMeta = null;
   let toastTimer = null;
   let allReplayList = [];
   let replayList = [];
 
-  // Persistent hide list keyed by raw agent.name (survives session restarts;
-  // label is a mutable nickname, sessionId churns). INITIAL_HIDDEN_DEV_NAMES is
-  // a one-time migration seed applied only when the storage key is absent.
+  // Phone replay track state (the phone <audio> plane).
+  let phoneMeta = null;        // current/last replay entry loaded into <audio>
+  let currentIndex = -1;
+  let phonePendingTap = false; // file loaded but autoplay rejected — needs a tap
+  let audioUnlocked = false;
+  let lastPhonePauseAt = 0;    // remembered position when mac-live pre-empted us
+
+  // Catch-up / messages
+  let catchUpMode = false;
+  let catchUpQueue = [];
+
+  // SSE / new-message detection
+  let lastNowPlayingKey = null;
+  let knownFiles = new Set();
+  let pendingNewEntry = null;
+
+  // Output preference (§1)
+  function loadOutput() {
+    try {
+      const v = localStorage.getItem(OUTPUT_KEY);
+      return v === "phone" ? "phone" : "mac";
+    } catch {
+      return "mac";
+    }
+  }
+  let outputPref = loadOutput();
+  function setOutput(v) {
+    outputPref = v === "phone" ? "phone" : "mac";
+    try { localStorage.setItem(OUTPUT_KEY, outputPref); } catch { /* quota */ }
+    renderMembers();
+    renderExpandedChrome();
+  }
+
+  // Reply drafts survive member re-renders (Wispr Flow keyboard needs a stable field).
+  const replyDrafts = {};
+  let openReplySession = null;
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2400);
+  }
+
+  /* --------------- localStorage sets --------------- */
+  function loadStrSet(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch {
+      return new Set();
+    }
+  }
+  function saveStrSet(key, set) {
+    try {
+      localStorage.setItem(key, JSON.stringify([...set]));
+    } catch {
+      /* quota */
+    }
+  }
+
+  let listened = loadStrSet(LISTENED_KEY);
+  let clearedFiles = loadStrSet(CLEARED_KEY);
+
+  function pruneAgainst(set, key, list) {
+    const files = new Set((list || []).map((e) => e.file).filter(Boolean));
+    let changed = false;
+    for (const f of [...set]) {
+      if (!files.has(f)) {
+        set.delete(f);
+        changed = true;
+      }
+    }
+    if (changed) saveStrSet(key, set);
+  }
+
+  function markListened(file) {
+    if (!file || listened.has(file)) return;
+    listened.add(file);
+    saveStrSet(LISTENED_KEY, listened);
+    renderMessages();
+    updateBars();
+  }
+
+  /* --------------- Hidden devs (preserved) --------------- */
   function loadHiddenDevNames() {
     const seed = () => {
       const set = new Set(INITIAL_HIDDEN_DEV_NAMES);
       try {
         localStorage.setItem(HIDDEN_DEVS_KEY, JSON.stringify([...set].sort()));
-      } catch {
-        /* ignore quota */
-      }
+      } catch { /* ignore quota */ }
       return set;
     };
     let raw;
@@ -636,126 +979,69 @@
       .map((v) => v.trim())
       .filter(Boolean);
     const set = new Set(norm);
-    // Write back normalization (dedup/trim) so storage never stays dirty.
     if (norm.length !== parsed.length || set.size !== norm.length) {
       try {
         localStorage.setItem(HIDDEN_DEVS_KEY, JSON.stringify([...set].sort()));
-      } catch {
-        /* keep in-memory set */
-      }
+      } catch { /* keep in-memory set */ }
     }
     return set;
   }
-
-  /** Persist the set; returns false (and toasts) if storage rejected it. */
   function saveHiddenDevNames() {
     try {
-      localStorage.setItem(
-        HIDDEN_DEVS_KEY,
-        JSON.stringify([...hiddenDevNames].sort())
-      );
+      localStorage.setItem(HIDDEN_DEVS_KEY, JSON.stringify([...hiddenDevNames].sort()));
       return true;
     } catch {
       toast("Could not save hidden devs");
       return false;
     }
   }
-
   let hiddenDevNames = loadHiddenDevNames();
 
   function isHiddenDevName(name) {
     const n = String(name || "").trim();
     return !!n && hiddenDevNames.has(n);
   }
-
   function agentRawName(agent) {
     return String(agent?.name || "").trim();
   }
-
   function agentForSession(sessionId) {
     return (snapshot.agents || []).find((a) => a.sessionId === sessionId);
   }
-
   function entryRawName(entry) {
     const sn = String(entry?.sessionName || "").trim();
     if (sn) return sn;
     return agentRawName(agentForSession(entry?.sessionId));
   }
-
   function isReplayEntryHidden(entry) {
     return isHiddenDevName(entryRawName(entry));
   }
-
   function visibleAgents() {
-    return (snapshot.agents || []).filter(
-      (a) => !isHiddenDevName(agentRawName(a))
-    );
+    return (snapshot.agents || []).filter((a) => !isHiddenDevName(agentRawName(a)));
   }
-  let currentIndex = -1;
-  let catchUpMode = false;
-  let catchUpQueue = [];
-  let lastNowPlayingKey = null;
-  let knownFiles = new Set();
-  let pendingNewEntry = null;
-
-  function toast(msg) {
-    toastEl.textContent = msg;
-    toastEl.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+  function isInjectable(agent) {
+    // Server contract: agent.injectable. Degrade to isTeam until it ships.
+    if (typeof agent?.injectable === "boolean") return agent.injectable;
+    return !!agent?.isTeam;
   }
 
-  function loadListened() {
-    try {
-      const raw = localStorage.getItem(LISTENED_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-      return new Set(Array.isArray(arr) ? arr : []);
-    } catch {
-      return new Set();
-    }
-  }
-
-  function saveListened(set) {
-    try {
-      localStorage.setItem(LISTENED_KEY, JSON.stringify([...set]));
-    } catch {
-      /* ignore quota */
-    }
-  }
-
-  let listened = loadListened();
-
-  function pruneListened(list) {
-    const files = new Set((list || []).map((e) => e.file).filter(Boolean));
-    let changed = false;
-    for (const f of [...listened]) {
-      if (!files.has(f)) {
-        listened.delete(f);
-        changed = true;
-      }
-    }
-    if (changed) saveListened(listened);
-  }
-
-  function markListened(file) {
-    if (!file || listened.has(file)) return;
-    listened.add(file);
-    saveListened(listened);
-    renderMessages();
-    updateCatchupBtn();
-  }
-
+  /* --------------- helpers --------------- */
   async function postAction(body) {
-    const res = await fetch("/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      toast("Action failed");
-      return false;
+    try {
+      const res = await fetch("/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return null;
+      try { return await res.json(); } catch { return {}; }
+    } catch {
+      return null;
     }
-    return true;
+  }
+
+  function setImg(el, src) {
+    // Avoid reassigning identical src (would re-decode / flicker on every tick).
+    if (el.getAttribute("src") !== src) el.src = src;
   }
 
   function escapeHtml(s) {
@@ -776,34 +1062,33 @@
     }
     return "default";
   }
-
   function avatarSrc(character, frame) {
     return `/avatars/tmnt/${encodeURIComponent(character)}/${frame}.png`;
   }
-
   function entryCharacter(entry) {
     if (entry?.character) return String(entry.character).toLowerCase();
     if (entry?.sessionId) {
-      const agent = (snapshot.agents || []).find((a) => a.sessionId === entry.sessionId);
+      const agent = agentForSession(entry.sessionId);
       if (agent) return avatarDir(agent);
     }
     return "default";
   }
-
   function entryName(entry) {
-    if (entry?.sessionName) return entry.sessionName;
+    if (entry?.sessionName) {
+      const a = (snapshot.agents || []).find((x) => agentRawName(x) === entry.sessionName);
+      if (a) return a.label || a.name || entry.sessionName;
+      return entry.sessionName;
+    }
     if (entry?.sessionId) {
-      const agent = (snapshot.agents || []).find((a) => a.sessionId === entry.sessionId);
+      const agent = agentForSession(entry.sessionId);
       if (agent) return agent.label || agent.name || entry.sessionId.slice(0, 8);
     }
     return entry?.character || "Unknown";
   }
-
   function entryPreview(entry) {
     const t = entry?.textPreview || entry?.spokenText || "";
-    return t.length > 60 ? t.slice(0, 60) + "…" : t;
+    return t.length > 90 ? t.slice(0, 90) + "…" : t;
   }
-
   function timeAgo(ts) {
     if (!ts) return "";
     const t = Date.parse(ts);
@@ -814,10 +1099,8 @@
     if (min < 60) return `${min}m ago`;
     const hr = Math.floor(min / 60);
     if (hr < 48) return `${hr}h ago`;
-    const days = Math.floor(hr / 24);
-    return `${days}d ago`;
+    return `${Math.floor(hr / 24)}d ago`;
   }
-
   function fmtTime(sec) {
     if (!Number.isFinite(sec) || sec < 0) return "0:00";
     const s = Math.floor(sec);
@@ -826,26 +1109,92 @@
     return `${m}:${r < 10 ? "0" : ""}${r}`;
   }
 
-  function isPhoneIdle() {
-    return !audio.src || audio.paused || audio.ended;
-  }
-
-  function isSpotlightActive(np) {
+  /* ============================================================
+     §0  PLAYER STATE MODEL
+     ============================================================ */
+  function isNowPlayingActive(np) {
     return !!(np && !np.endedAt && np.kind !== "ack" && np.text);
   }
 
-  function karaokeHtml(text, alignment, startedAt, playbackRate) {
-    const rate = playbackRate && playbackRate > 0 ? playbackRate : 1;
-    const started = startedAt ? Date.parse(startedAt) : NaN;
-    const elapsed = Number.isFinite(started)
-      ? Math.max(0, (Date.now() - started) * rate)
-      : 0;
+  // The one discriminated state that drives ALL player chrome.
+  function computePlayerState() {
+    const np = snapshot.nowPlaying;
+    const active = isNowPlayingActive(np);
+    // Mac speaking through its own speakers → mac-live owns the player.
+    if (active && np.output !== "phone") {
+      return { kind: "mac-live", nowPlaying: np };
+    }
+    // Otherwise, any loaded phone replay (playing, paused, or awaiting a tap).
+    if (phoneMeta) {
+      return { kind: "phone-replay", entry: phoneMeta, index: currentIndex };
+    }
+    return { kind: "none" };
+  }
 
+  function isMacLive() {
+    return computePlayerState().kind === "mac-live";
+  }
+
+  /* --------------- mac-live progress with pause anchor --------------- */
+  let macTrackKey = null;
+  let macPausedAccumMs = 0;
+  let macPauseStartMs = null;
+  function macElapsedMs(np) {
+    const key = `${np.startedAt}|${(np.text || "").slice(0, 24)}`;
+    if (key !== macTrackKey) {
+      macTrackKey = key;
+      macPausedAccumMs = 0;
+      macPauseStartMs = null;
+    }
+    const started = Date.parse(np.startedAt);
+    if (!Number.isFinite(started)) return 0;
+    const paused = !!snapshot.paused;
+    if (paused && macPauseStartMs === null) macPauseStartMs = Date.now();
+    if (!paused && macPauseStartMs !== null) {
+      macPausedAccumMs += Date.now() - macPauseStartMs;
+      macPauseStartMs = null;
+    }
+    const nowRef = paused ? macPauseStartMs : Date.now();
+    const rate = np.playbackRate && np.playbackRate > 0 ? np.playbackRate : 1;
+    return Math.max(0, (nowRef - started - macPausedAccumMs) * rate);
+  }
+  function macDurationMs(np) {
+    const alignment = np.alignment;
+    if (Array.isArray(alignment) && alignment.length) {
+      let maxMs = 0;
+      for (const row of alignment) {
+        const ms = row?.[1];
+        if (typeof ms === "number" && ms > maxMs) maxMs = ms;
+      }
+      if (maxMs > 0) return maxMs + 400;
+    }
+    const cps = np.approxCharsPerSec > 0 ? np.approxCharsPerSec : 15;
+    const guess = ((np.text || "").length / cps) * 1000;
+    return guess > 0 ? guess : 60000;
+  }
+
+  /* --------------- phone track duration --------------- */
+  function trackDurationSec() {
+    const d = audio.duration;
+    if (Number.isFinite(d) && d > 0) return d;
+    const alignment = phoneMeta?.alignment;
+    if (Array.isArray(alignment) && alignment.length) {
+      let maxMs = 0;
+      for (const row of alignment) {
+        const ms = row?.[1];
+        if (typeof ms === "number" && ms > maxMs) maxMs = ms;
+      }
+      if (maxMs > 0) return maxMs / 1000 + 0.4;
+    }
+    return 0;
+  }
+
+  function karaokeFromAlignment(text, alignment, elapsedMs) {
     if (Array.isArray(alignment) && alignment.length) {
       let active = -1;
       for (let i = 0; i < alignment.length; i++) {
         const startMs = alignment[i][1];
-        if (typeof startMs === "number" && startMs <= elapsed) active = i;
+        if (typeof startMs === "number" && startMs <= elapsedMs) active = i;
       }
       return alignment
         .map(([word], i) => {
@@ -857,38 +1206,430 @@
     return escapeHtml(text || "");
   }
 
-  function renderSpotlight() {
-    const np = snapshot.nowPlaying;
-    if (!isSpotlightActive(np)) {
-      spotlight.classList.remove("on");
-      spotlight.innerHTML = "";
-      return;
-    }
-    const agent = (snapshot.agents || []).find((a) => a.sessionId === np.sessionId);
-    const character = agent ? avatarDir(agent) : "default";
-    const name = agent?.label || agent?.name || np.sessionId.slice(0, 8);
-    spotlight.classList.add("on");
-    spotlight.innerHTML = `
-      <div class="row">
-        <img class="avatar" src="${avatarSrc(character, "speaking")}" alt=""
-          onerror="this.src='${avatarSrc("default", "speaking")}'" />
-        <div class="meta">
-          <p class="name">${escapeHtml(name)}</p>
-          <span class="badge speaking">speaking</span>
-          <div class="karaoke" id="spot-karaoke"></div>
-        </div>
-      </div>`;
-    updateSpotKaraoke();
+  /* ============================================================
+     §2  UNIFIED PLAYER (mini + expanded)
+     ============================================================ */
+  let lastMarqueeText = null;
+  function setMarquee(text) {
+    if (text === lastMarqueeText) return;
+    lastMarqueeText = text;
+    miniPreview.classList.remove("scroll");
+    miniPreview.innerHTML = `<span class="inner">${escapeHtml(text)}</span>`;
+    const inner = miniPreview.firstChild;
+    requestAnimationFrame(() => {
+      if (inner && inner.scrollWidth > miniPreview.clientWidth + 6) {
+        inner.innerHTML =
+          `${escapeHtml(text)}&nbsp;&nbsp;&nbsp;&nbsp;${escapeHtml(text)}`;
+        miniPreview.classList.add("scroll");
+      }
+    });
   }
 
-  function updateSpotKaraoke() {
-    const el = document.getElementById("spot-karaoke");
-    const np = snapshot.nowPlaying;
-    if (!el || !isSpotlightActive(np)) return;
-    el.innerHTML = karaokeHtml(np.text, np.alignment, np.startedAt, np.playbackRate);
+  // Player "subject" = who + what the player is currently about.
+  function playerSubject() {
+    const ps = computePlayerState();
+    if (ps.kind === "mac-live") {
+      const np = ps.nowPlaying;
+      const agent = agentForSession(np.sessionId);
+      return {
+        character: agent ? avatarDir(agent) : "default",
+        name: agent ? agent.label || agent.name : np.sessionId.slice(0, 8),
+        preview: (np.text || "").slice(0, 120),
+        sessionId: np.sessionId,
+      };
+    }
+    if (ps.kind === "phone-replay") {
+      const e = ps.entry;
+      return {
+        character: entryCharacter(e),
+        name: entryName(e),
+        preview: phonePendingTap
+          ? "Ready — tap to play"
+          : e.spokenText || e.textPreview || "",
+        sessionId: e.sessionId || null,
+      };
+    }
+    return null;
+  }
+
+  function ppIcon() {
+    const ps = computePlayerState();
+    if (ps.kind === "mac-live") return snapshot.paused ? "▶" : "⏸";
+    if (ps.kind === "phone-replay") {
+      if (phonePendingTap) return "▶";
+      return !audio.paused && !audio.ended ? "⏸" : "▶";
+    }
+    return "▶";
+  }
+
+  function renderMiniChrome() {
+    const subject = playerSubject();
+    const show = !!subject;
+    if (show) {
+      mini.classList.add("on");
+      document.body.classList.remove("player-hidden");
+    } else {
+      mini.classList.remove("on");
+      document.body.classList.add("player-hidden");
+      lastMarqueeText = null;
+      return;
+    }
+    const ps = computePlayerState();
+    const frame = ps.kind === "mac-live" ? "speaking" : "idle";
+    miniName.textContent = subject.name;
+    miniAvatar.onerror = () => {
+      miniAvatar.onerror = null;
+      miniAvatar.src = avatarSrc("default", frame);
+    };
+    setImg(miniAvatar, avatarSrc(subject.character, frame));
+    if (ps.kind === "mac-live") {
+      miniDevice.textContent = "Mac";
+      miniDevice.classList.add("mac");
+    } else {
+      miniDevice.textContent = "Phone";
+      miniDevice.classList.remove("mac");
+    }
+    setMarquee(subject.preview || "");
+    miniPp.textContent = ppIcon();
+  }
+
+  function renderExpandedChrome() {
+    const ps = computePlayerState();
+    const subject = playerSubject();
+    if (!subject) {
+      // Nothing to show — force-collapse.
+      closeExpanded();
+      return;
+    }
+    const expFrame = ps.kind === "mac-live" ? "speaking" : "idle";
+    expAvatar.onerror = () => {
+      expAvatar.onerror = null;
+      expAvatar.src = avatarSrc("default", expFrame);
+    };
+    setImg(expAvatar, avatarSrc(subject.character, expFrame));
+    expName.textContent = subject.name;
+
+    // Device row reflects output preference.
+    for (const seg of expDeviceRow.querySelectorAll(".seg")) {
+      seg.classList.toggle("active", seg.getAttribute("data-device") === outputPref);
+    }
+
+    // Transport visibility by kind.
+    const phone = ps.kind === "phone-replay";
+    const macl = ps.kind === "mac-live";
+    btnPrev.hidden = !phone;
+    btnNext.hidden = !phone;
+    btnStop.hidden = !macl;
+    btnPp.textContent = ppIcon();
+    $("progress").classList.toggle("seekable", phone);
+
+    if (phone) {
+      btnPrev.disabled = currentIndex <= 0;
+      btnNext.disabled = currentIndex < 0 || currentIndex >= replayList.length - 1;
+    }
+
+    renderExpandedReply(subject);
+    updatePlayerProgress();
+    updateExpandedKaraoke();
+  }
+
+  let lastExpReplyAgent = null;
+  function renderExpandedReply(subject) {
+    const agent = subject.sessionId ? agentForSession(subject.sessionId) : null;
+    const id = agent ? agent.sessionId : null;
+    // Only rebuild when the subject agent changes — otherwise a snapshot tick
+    // would wipe the textarea mid-type (Wispr Flow needs a stable field).
+    if (id === lastExpReplyAgent && expReplyWrap.querySelector(".reply-box")) return;
+    lastExpReplyAgent = id;
+    if (!agent) {
+      expReplyWrap.innerHTML = "";
+      return;
+    }
+    expReplyWrap.innerHTML = replyBoxHtml(agent, "exp");
+  }
+
+  function updatePlayerProgress() {
+    const ps = computePlayerState();
+    let cur = 0;
+    let dur = 0;
+    if (ps.kind === "mac-live") {
+      dur = macDurationMs(ps.nowPlaying) / 1000;
+      cur = Math.min(dur, macElapsedMs(ps.nowPlaying) / 1000);
+    } else if (ps.kind === "phone-replay") {
+      dur = trackDurationSec();
+      cur = audio.currentTime || 0;
+    }
+    const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
+    progressFill.style.width = `${pct}%`;
+    $("time-elapsed").textContent = fmtTime(cur);
+    $("time-total").textContent = dur > 0 ? fmtTime(dur) : "0:00";
+    $("progress").setAttribute("aria-valuenow", String(Math.round(pct)));
+  }
+
+  function updateExpandedKaraoke() {
+    if (!expanded.classList.contains("open")) return;
+    const ps = computePlayerState();
+    if (ps.kind === "mac-live") {
+      const np = ps.nowPlaying;
+      expKaraoke.innerHTML = karaokeFromAlignment(np.text, np.alignment, macElapsedMs(np));
+    } else if (ps.kind === "phone-replay") {
+      const e = ps.entry;
+      const elapsed = (audio.currentTime || 0) * 1000;
+      const text = e.spokenText || e.textPreview || "";
+      expKaraoke.innerHTML = karaokeFromAlignment(text, e.alignment, elapsed);
+    } else {
+      expKaraoke.innerHTML = "";
+    }
+  }
+
+  function renderPlayer() {
+    renderMiniChrome();
+    renderExpandedChrome();
+  }
+
+  function openExpanded() {
+    if (!playerSubject()) return;
+    expanded.classList.add("open");
+    expanded.setAttribute("aria-hidden", "false");
+    renderExpandedChrome();
+  }
+  function closeExpanded() {
+    expanded.classList.remove("open");
+    expanded.setAttribute("aria-hidden", "true");
+  }
+
+  /* ============================================================
+     Transport (follows playerState.kind — §0)
+     ============================================================ */
+  async function transportPlayPause() {
+    const ps = computePlayerState();
+    if (ps.kind === "mac-live") {
+      const wasPaused = !!snapshot.paused;
+      const ok = await postAction({ type: "pause" });
+      if (ok) toast(wasPaused ? "Mac playback resumed" : "Mac playback paused");
+      return;
+    }
+    if (ps.kind === "phone-replay") {
+      if (phonePendingTap) {
+        phonePendingTap = false;
+        try {
+          audio.muted = false;
+          await audio.play();
+        } catch {
+          phonePendingTap = true;
+          toast("Tap again to play");
+        }
+        renderPlayer();
+        return;
+      }
+      if (audio.paused) {
+        try { await audio.play(); } catch { toast("Tap again to play"); }
+      } else {
+        audio.pause();
+      }
+      renderPlayer();
+      return;
+    }
+    // none → play latest replay
+    playLatest();
+  }
+
+  async function transportStop() {
+    const ps = computePlayerState();
+    if (ps.kind === "mac-live") {
+      const ok = await postAction({ type: "stop" });
+      if (ok) toast("Mac playback stopped");
+      return;
+    }
+    clearPhonePlayback();
+    renderPlayer();
+  }
+
+  /* ============================================================
+     §1  Phone playback + priming
+     ============================================================ */
+  function primeAudio() {
+    // Unlock <audio> inside a user gesture so a later SSE-driven play() works.
+    if (audioUnlocked) return;
+    try {
+      audio.muted = true;
+      audio.src = SILENT_WAV;
+      const p = audio.play();
+      if (p && p.then) {
+        p.then(() => {
+          audio.pause();
+          audio.muted = false;
+          audioUnlocked = true;
+        }).catch(() => {
+          audio.muted = false;
+        });
+      }
+    } catch { /* ignore */ }
+  }
+
+  function isPhoneIdle() {
+    return !audio.src || audio.paused || audio.ended;
+  }
+
+  async function playReplayEntry(entry, { fromCatchUp, gated = true } = {}) {
+    if (!entry?.file) {
+      toast("No replay");
+      return;
+    }
+    if (isReplayEntryHidden(entry)) {
+      toast("That dev is hidden");
+      return;
+    }
+    // Arbitration: mac-live owns the player.
+    if (gated && isMacLive()) {
+      toast("Mac is speaking — stop it first");
+      return;
+    }
+    if (!fromCatchUp) {
+      catchUpMode = false;
+      catchUpQueue = [];
+    }
+    phonePendingTap = false;
+    currentIndex = replayList.findIndex((e) => e.file === entry.file);
+    phoneMeta = entry;
+    pendingNewEntry = null;
+    newPill.classList.remove("on");
+    audio.muted = false;
+    audio.src = `/replay-audio/${encodeURIComponent(entry.file)}`;
+    audio.playbackRate =
+      entry.playbackRate && entry.playbackRate > 0 ? entry.playbackRate : 1;
+    renderPlayer();
+    renderMessages();
+    updateBars();
+    try {
+      await audio.play();
+    } catch {
+      // Autoplay rejected — surface a tap-to-play affordance.
+      phonePendingTap = true;
+      toast("Ready — tap to play");
+    }
+    renderPlayer();
+  }
+
+  async function playAtIndex(i, opts) {
+    if (i < 0 || i >= replayList.length) return;
+    await playReplayEntry(replayList[i], opts);
+  }
+
+  // §3 replay-match fallback: exact sessionId → newest same sessionName → toast.
+  async function replayForAgent(agent) {
+    if (isMacLive()) {
+      toast("Mac is speaking — stop it first");
+      return;
+    }
+    try {
+      await refreshReplayList();
+    } catch {
+      toast("Replay list failed");
+      return;
+    }
+    const displayName = agent.label || agent.name;
+    let entry = replayList.find((e) => e.sessionId === agent.sessionId);
+    if (!entry) {
+      const raw = agentRawName(agent);
+      entry = replayList.find(
+        (e) => String(e.sessionName || "").trim() === raw
+      );
+    }
+    if (!entry) {
+      toast(`No replays yet for ${displayName}`);
+      return;
+    }
+    await playReplayEntry(entry);
+  }
+
+  async function playLatest() {
+    if (isMacLive()) {
+      toast("Mac is speaking — stop it first");
+      return;
+    }
+    if (!replayList.length) {
+      try { await refreshReplayList(); } catch { toast("Replay list failed"); return; }
+    }
+    if (!replayList.length) {
+      toast("No replays yet");
+      return;
+    }
+    await playReplayEntry(replayList[0]);
+  }
+
+  // Grant-to-phone: nowPlaying.output === "phone" → play exactly replayFile.
+  async function maybePlayGrantToPhone(np) {
+    const file = np.replayFile;
+    if (!file) return;
+    if (phoneMeta?.file === file && !isPhoneIdle()) return; // already on it
+    // Try to enrich from the replay list (alignment, name), else synthesize.
+    let entry = null;
+    try {
+      await refreshReplayList();
+      entry = replayList.find((e) => e.file === file);
+    } catch { /* fall through */ }
+    if (!entry) {
+      entry = {
+        file,
+        sessionId: np.sessionId,
+        alignment: np.alignment,
+        spokenText: np.text,
+        textPreview: np.text,
+        playbackRate: np.playbackRate,
+      };
+    }
+    // Not gated by mac-live: this IS the routed phone output, not a Mac plane.
+    await playReplayEntry(entry, { gated: false });
+  }
+
+  function clearPhonePlayback() {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    phoneMeta = null;
+    currentIndex = -1;
+    phonePendingTap = false;
+    lastPhonePauseAt = 0;
+    stopCatchUp();
+    closeExpanded();
+    renderPlayer();
+    renderMessages();
+    updateBars();
+  }
+
+  /* ============================================================
+     Arbitration: pause phone audio when mac-live begins
+     ============================================================ */
+  function enforceArbitration() {
+    if (isMacLive() && phoneMeta && !audio.paused && !audio.ended) {
+      lastPhonePauseAt = audio.currentTime || 0;
+      audio.pause();
+    }
+  }
+
+  /* ============================================================
+     §3  Session cards
+     ============================================================ */
+  function replyBoxHtml(agent, ns) {
+    const displayName = agent.label || agent.name;
+    const injectable = isInjectable(agent);
+    if (!injectable) return "";
+    const draft = replyDrafts[agent.sessionId] || "";
+    const open = openReplySession === agent.sessionId || ns === "exp";
+    return `
+      <div class="reply-box" data-reply-box="${escapeHtml(agent.sessionId)}"${open ? "" : " hidden"}>
+        <textarea class="reply-input" data-reply-for="${escapeHtml(agent.sessionId)}"
+          placeholder="Reply to ${escapeHtml(displayName)}…">${escapeHtml(draft)}</textarea>
+        <div class="reply-actions">
+          <button type="button" class="ghost" data-reply-cancel="${escapeHtml(agent.sessionId)}">Cancel</button>
+          <button type="button" class="accent grow" data-reply-send="${escapeHtml(agent.sessionId)}">Send</button>
+        </div>
+      </div>`;
   }
 
   function renderMembers() {
+    const focus = captureReplyFocus();
     const agents = visibleAgents();
     if (!agents.length) {
       members.innerHTML = `<div class="empty">No agents in the room</div>`;
@@ -897,57 +1638,155 @@
     members.innerHTML = agents
       .map((agent) => {
         const character = avatarDir(agent);
-        const frame = agent.state === "speaking" ? "speaking" : "idle";
-        const raisedBadge =
-          agent.state === "hand_raised"
-            ? `<span class="chip raised" title="Hand raised">✋</span>`
-            : "";
+        const speaking = agent.state === "speaking";
+        const frame = speaking ? "speaking" : "idle";
+        const injectable = isInjectable(agent);
+        const displayName = agent.label || agent.name;
+        const rawName = agentRawName(agent);
+
+        const stateBadge = speaking
+          ? `<span class="badge speaking pulse">speaking</span>`
+          : `<span class="badge ${escapeHtml(agent.state)}">${escapeHtml(
+              String(agent.state).replace("_", " ")
+            )}</span>`;
+
+        const mutedChip = agent.muted ? `<span class="chip muted">muted</span>` : "";
         const queueChip =
-          agent.raisedCount > 0
+          agent.raisedCount > 1
             ? `<span class="chip" title="Queued">${agent.raisedCount} queued</span>`
             : "";
-        const mutedChip = agent.muted
-          ? `<span class="chip muted">muted</span>`
-          : "";
-        const grantBtn =
-          agent.state === "hand_raised"
-            ? `<button type="button" class="grant" data-grant="${escapeHtml(agent.sessionId)}">Grant</button>`
+
+        // §3 queued preview line (hand raised only; degrade if absent).
+        let waiting = "";
+        if (agent.state === "hand_raised" && agent.queuedPreview) {
+          const qp = String(agent.queuedPreview);
+          const trimmed = qp.length > 120 ? qp.slice(0, 120) + "…" : qp;
+          waiting = `<div class="waiting">Waiting: <em>“${escapeHtml(trimmed)}”</em></div>`;
+        }
+
+        // Primary action by state.
+        let primary = "";
+        if (agent.state === "hand_raised") {
+          const sub = outputPref === "phone" ? "on this phone" : "on Mac";
+          primary = `<button type="button" class="accent grow read-update" data-grant="${escapeHtml(
+            agent.sessionId
+          )}">▶ Read update<span class="sub">${sub}</span></button>`;
+        } else if (!speaking) {
+          primary = `<button type="button" class="ghost grow" data-replay="${escapeHtml(
+            agent.sessionId
+          )}">Replay last</button>`;
+        }
+
+        // Reply affordance.
+        let reply;
+        if (injectable) {
+          reply = `<button type="button" class="ghost" data-reply-toggle="${escapeHtml(
+            agent.sessionId
+          )}">Reply</button>`;
+        } else {
+          reply = `<button type="button" class="ghost" data-reply-blocked="1">Reply</button>`;
+        }
+
+        const actions =
+          primary || reply
+            ? `<div class="card-actions">${primary}${reply}</div>`
             : "";
-        const rawName = agentRawName(agent);
-        const displayName = agent.label || agent.name;
+        const hint = injectable
+          ? ""
+          : `<div class="reply-hint">Reply off — not in team room. Respawn from ＋ to enable.</div>`;
+
         const hideBtn = rawName
           ? `<button type="button" class="btn-hide-dev" data-hide-dev="${escapeHtml(
               rawName
             )}" aria-label="Hide ${escapeHtml(displayName)}">Hide</button>`
           : "";
+
         return `
           <article class="card" data-session="${escapeHtml(agent.sessionId)}">
             <div class="row card-member-row">
               <div style="position:relative">
                 <img class="avatar" src="${avatarSrc(character, frame)}" alt=""
-                  onerror="this.src='${avatarSrc("default", frame)}'" />
-                ${raisedBadge ? `<div style="position:absolute;right:-4px;top:-4px;font-size:1.1rem">✋</div>` : ""}
+                  onerror="this.onerror=null;this.src='${avatarSrc("default", frame)}'" />
+                ${
+                  agent.state === "hand_raised"
+                    ? `<div style="position:absolute;right:-4px;top:-4px;font-size:1.1rem">✋</div>`
+                    : ""
+                }
               </div>
               <div class="meta">
-                <p class="name">${escapeHtml(agent.label || agent.name)}</p>
-                <span class="badge ${escapeHtml(agent.state)}">${escapeHtml(
-                  String(agent.state).replace("_", " ")
-                )}</span>
-                <div class="chips">${queueChip}${mutedChip}${raisedBadge}</div>
+                <p class="name">${escapeHtml(displayName)}</p>
+                ${stateBadge}
+                <div class="chips">${queueChip}${mutedChip}</div>
+                ${waiting}
               </div>
               ${hideBtn}
             </div>
-            <div class="card-actions">
-              <button type="button" class="primary" data-play="${escapeHtml(
-                agent.sessionId
-              )}">▶ Play</button>
-              ${grantBtn}
-            </div>
+            ${actions}
+            ${hint}
+            ${replyBoxHtml(agent, "card")}
           </article>`;
       })
       .join("");
+    restoreReplyFocus(focus);
   }
 
+  /* --------------- reply focus preservation --------------- */
+  function captureReplyFocus() {
+    const el = document.activeElement;
+    if (el && el.classList && el.classList.contains("reply-input")) {
+      return {
+        id: el.getAttribute("data-reply-for"),
+        start: el.selectionStart,
+        end: el.selectionEnd,
+      };
+    }
+    return null;
+  }
+  function restoreReplyFocus(focus) {
+    if (!focus || !focus.id) return;
+    const ta = members.querySelector(
+      `.reply-input[data-reply-for="${focus.id}"]`
+    );
+    if (ta) {
+      ta.focus();
+      try { ta.setSelectionRange(focus.start, focus.end); } catch { /* noop */ }
+    }
+  }
+
+  /* ============================================================
+     Reply send (§7)
+     ============================================================ */
+  async function sendReply(sessionId, textarea) {
+    const text = String(textarea?.value || "").trim();
+    const agent = agentForSession(sessionId);
+    const name = agent ? agent.label || agent.name : "agent";
+    if (!text) {
+      toast("Type a reply first");
+      return;
+    }
+    if (text.length > 4000) {
+      toast("Reply too long");
+      return;
+    }
+    const r = await postAction({ type: "reply", sessionId, text });
+    const status = r ? r.status || "ok" : "failed";
+    if (status === "ok") {
+      toast(`Reply sent to ${name}`);
+      delete replyDrafts[sessionId];
+      openReplySession = null;
+      textarea.value = "";
+      renderMembers();
+      renderExpandedChrome();
+    } else if (status === "not_in_team") {
+      toast("Not in team room — respawn from ＋");
+    } else {
+      toast("Reply failed");
+    }
+  }
+
+  /* ============================================================
+     Hidden devs (preserved)
+     ============================================================ */
   function renderHiddenDevs() {
     const names = [...hiddenDevNames].sort((a, b) => a.localeCompare(b));
     const count = names.length;
@@ -962,9 +1801,7 @@
     btnHiddenDevs.textContent = count === 1 ? "1 hidden" : `${count} hidden`;
     hiddenDevsList.innerHTML = names
       .map((rawName) => {
-        const agent = (snapshot.agents || []).find(
-          (a) => agentRawName(a) === rawName
-        );
+        const agent = (snapshot.agents || []).find((a) => agentRawName(a) === rawName);
         let label = rawName;
         let sub = "";
         if (agent) {
@@ -985,312 +1822,6 @@
       .join("");
   }
 
-  function unheardCount() {
-    return (replayList || []).filter(
-      (e) => e.file && !listened.has(e.file) && e.kind !== "ack"
-    ).length;
-  }
-
-  function updateCatchupBtn() {
-    const n = unheardCount();
-    if (catchUpMode) {
-      btnCatchup.style.display = "";
-      btnCatchup.textContent = "Stop catch-up";
-      return;
-    }
-    if (n > 0) {
-      btnCatchup.style.display = "";
-      btnCatchup.textContent = `Catch up (${n})`;
-    } else {
-      btnCatchup.style.display = "none";
-    }
-  }
-
-  function renderMessages() {
-    if (!replayList.length) {
-      messagesEl.innerHTML = `<div class="empty">No messages yet</div>`;
-      updateCatchupBtn();
-      return;
-    }
-    messagesEl.innerHTML = replayList
-      .map((entry, i) => {
-        const character = entryCharacter(entry);
-        const name = entryName(entry);
-        const preview = entryPreview(entry);
-        const ago = timeAgo(entry.timestamp);
-        const heard = listened.has(entry.file);
-        const playing = i === currentIndex && phoneMeta;
-        return `
-          <button type="button" class="msg-row${playing ? " playing" : ""}" data-msg-idx="${i}">
-            <img class="avatar sm" src="${avatarSrc(character, "idle")}" alt=""
-              onerror="this.src='${avatarSrc("default", "idle")}'" />
-            <div class="msg-body">
-              <div class="msg-top">
-                <span class="msg-name">${escapeHtml(name)}</span>
-                <span class="msg-ago">${escapeHtml(ago)}</span>
-              </div>
-              <div class="msg-preview">${escapeHtml(preview)}</div>
-            </div>
-            <span class="unheard${heard ? " hidden" : ""}" aria-label="unheard"></span>
-          </button>`;
-      })
-      .join("");
-    updateCatchupBtn();
-  }
-
-  function updatePlayerChrome() {
-    const hasTrack = !!(phoneMeta && audio.src);
-    if (hasTrack) {
-      player.classList.add("on");
-      document.body.classList.remove("player-hidden");
-    } else {
-      player.classList.remove("on");
-      document.body.classList.add("player-hidden");
-    }
-
-    const name = phoneMeta ? entryName(phoneMeta) : "";
-    const preview = phoneMeta ? entryPreview(phoneMeta) : "";
-    btnNow.textContent = hasTrack ? `${name} · ${preview}` : "—";
-    btnPp.textContent = !audio.paused && !audio.ended ? "⏸" : "▶";
-
-    const newest = replayList[0];
-    const showLatest =
-      hasTrack && newest && phoneMeta?.file && newest.file !== phoneMeta.file;
-    btnLatest.style.display = showLatest ? "" : "none";
-
-    $("btn-prev").disabled = currentIndex <= 0;
-    $("btn-next").disabled =
-      currentIndex < 0 || currentIndex >= replayList.length - 1;
-
-    updateProgress();
-  }
-
-  /** Prefer media duration; fall back to last alignment ms (streamed MP3 often lacks Content-Length). */
-  function trackDurationSec() {
-    const d = audio.duration;
-    if (Number.isFinite(d) && d > 0) return d;
-    const alignment = phoneMeta?.alignment;
-    if (Array.isArray(alignment) && alignment.length) {
-      let maxMs = 0;
-      for (const row of alignment) {
-        const ms = row?.[1];
-        if (typeof ms === "number" && ms > maxMs) maxMs = ms;
-      }
-      if (maxMs > 0) return maxMs / 1000 + 0.4;
-    }
-    return 0;
-  }
-
-  function updateProgress() {
-    const dur = trackDurationSec();
-    const cur = audio.currentTime || 0;
-    const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
-    progressFill.style.width = `${pct}%`;
-    $("time-elapsed").textContent = fmtTime(cur);
-    $("time-total").textContent = dur > 0 ? fmtTime(dur) : "0:00";
-    $("progress").setAttribute("aria-valuenow", String(Math.round(pct)));
-  }
-
-  function checkListenedProgress() {
-    if (!phoneMeta?.file) return;
-    const dur = trackDurationSec();
-    const cur = audio.currentTime || 0;
-    if (dur > 0 && cur / dur >= 0.8) {
-      markListened(phoneMeta.file);
-    }
-  }
-
-  function render() {
-    renderSpotlight();
-    renderMembers();
-    renderHiddenDevs();
-    $("btn-hold").textContent = snapshot.roomHeld ? "✋" : "✋";
-    $("btn-hold").title = snapshot.roomHeld ? "Release room" : "Hold room";
-    renderMessages();
-    updatePlayerChrome();
-  }
-
-  function tickKaraoke() {
-    updateSpotKaraoke();
-    if (phoneMeta && !audio.paused) updatePhoneKaraoke();
-    if (phoneMeta && !audio.paused) {
-      updateProgress();
-      checkListenedProgress();
-    }
-  }
-
-  function updatePhoneKaraoke() {
-    if (!phoneMeta) return;
-    const elapsed = (audio.currentTime || 0) * 1000;
-    const alignment = phoneMeta.alignment;
-    const text = phoneMeta.spokenText || phoneMeta.textPreview || "";
-    if (Array.isArray(alignment) && alignment.length) {
-      let active = -1;
-      for (let i = 0; i < alignment.length; i++) {
-        const startMs = alignment[i][1];
-        if (typeof startMs === "number" && startMs <= elapsed) active = i;
-      }
-      sheetKaraoke.innerHTML = alignment
-        .map(([word], i) => {
-          const cls = i === active ? "w on" : i < active ? "w past" : "w";
-          return `<span class="${cls}">${escapeHtml(word)}</span>`;
-        })
-        .join(" ");
-    } else {
-      sheetKaraoke.textContent = text;
-    }
-  }
-
-  async function fetchReplayList() {
-    const res = await fetch("/replay-list");
-    if (!res.ok) throw new Error("replay-list failed");
-    return await res.json();
-  }
-
-  function applyReplayVisibility() {
-    replayList = allReplayList.filter((entry) => !isReplayEntryHidden(entry));
-    if (phoneMeta?.file) {
-      currentIndex = replayList.findIndex((e) => e.file === phoneMeta.file);
-    } else {
-      currentIndex = -1;
-    }
-    const visibleFiles = new Set(replayList.map((e) => e.file).filter(Boolean));
-    catchUpQueue = catchUpQueue.filter((e) => e.file && visibleFiles.has(e.file));
-    if (pendingNewEntry && !visibleFiles.has(pendingNewEntry.file)) {
-      pendingNewEntry = null;
-      newPill.classList.remove("on");
-    }
-  }
-
-  async function refreshReplayList({ detectNew } = {}) {
-    try {
-      const list = await fetchReplayList();
-      const prevKnown = knownFiles;
-      pruneListened(list);
-      allReplayList = Array.isArray(list) ? list : [];
-      applyReplayVisibility();
-
-      const newFiles = replayList.filter((e) => e.file && !prevKnown.has(e.file));
-      knownFiles = new Set(replayList.map((e) => e.file).filter(Boolean));
-
-      if (detectNew && newFiles.length && isPhoneIdle()) {
-        pendingNewEntry = newFiles[0];
-        newPill.classList.add("on");
-      }
-
-      renderMessages();
-      updatePlayerChrome();
-    } catch {
-      /* keep prior list */
-    }
-  }
-
-  async function playReplayEntry(entry, { fromCatchUp } = {}) {
-    if (!entry?.file) {
-      toast("No replay");
-      return;
-    }
-    if (isReplayEntryHidden(entry)) {
-      toast("That dev is hidden");
-      return;
-    }
-    if (!fromCatchUp) {
-      catchUpMode = false;
-      catchUpQueue = [];
-      updateCatchupBtn();
-    }
-    const idx = replayList.findIndex((e) => e.file === entry.file);
-    currentIndex = idx;
-    phoneMeta = entry;
-    pendingNewEntry = null;
-    newPill.classList.remove("on");
-    sheetKaraoke.textContent = entry.spokenText || entry.textPreview || "";
-    audio.src = `/replay-audio/${encodeURIComponent(entry.file)}`;
-    audio.playbackRate =
-      entry.playbackRate && entry.playbackRate > 0 ? entry.playbackRate : 1;
-    updatePlayerChrome();
-    renderMessages();
-    try {
-      await audio.play();
-      updatePlayerChrome();
-    } catch {
-      toast("Tap again to play");
-      updatePlayerChrome();
-    }
-  }
-
-  async function playAtIndex(i, opts) {
-    if (i < 0 || i >= replayList.length) return;
-    await playReplayEntry(replayList[i], opts);
-  }
-
-  async function playForSession(sessionId) {
-    try {
-      await refreshReplayList();
-    } catch {
-      toast("Replay list failed");
-      return;
-    }
-    const entry = (replayList || []).find((e) => e.sessionId === sessionId);
-    if (!entry) {
-      toast("No replay for this member");
-      return;
-    }
-    await playReplayEntry(entry);
-  }
-
-  async function playLatest() {
-    if (!replayList.length) {
-      try {
-        await refreshReplayList();
-      } catch {
-        toast("Replay list failed");
-        return;
-      }
-    }
-    if (!replayList.length) {
-      toast("No replays yet");
-      return;
-    }
-    await playReplayEntry(replayList[0]);
-  }
-
-  function stopCatchUp() {
-    catchUpMode = false;
-    catchUpQueue = [];
-    updateCatchupBtn();
-  }
-
-  async function startCatchUp() {
-    const unheard = [...replayList]
-      .filter((e) => e.file && !listened.has(e.file) && e.kind !== "ack")
-      .reverse(); // oldest → newest
-    if (!unheard.length) {
-      toast("Nothing to catch up");
-      return;
-    }
-    catchUpMode = true;
-    catchUpQueue = unheard;
-    updateCatchupBtn();
-    const next = catchUpQueue.shift();
-    await playReplayEntry(next, { fromCatchUp: true });
-  }
-
-  async function onTrackEnded() {
-    if (phoneMeta?.file) markListened(phoneMeta.file);
-    if (catchUpMode) {
-      catchUpQueue = catchUpQueue.filter((e) => !isReplayEntryHidden(e));
-    }
-    if (catchUpMode && catchUpQueue.length) {
-      const next = catchUpQueue.shift();
-      await playReplayEntry(next, { fromCatchUp: true });
-      return;
-    }
-    if (catchUpMode) stopCatchUp();
-    updatePlayerChrome();
-    renderMessages();
-  }
-
   function memberCard(sessionId) {
     if (!sessionId) return null;
     return (
@@ -1300,37 +1831,19 @@
     );
   }
 
-  function clearPhonePlayback() {
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
-    phoneMeta = null;
-    currentIndex = -1;
-    sheet.classList.remove("open");
-    sheetKaraoke.innerHTML = "";
-    stopCatchUp();
-  }
-
   function setDevHidden(rawName, hidden) {
     const name = String(rawName || "").trim();
     if (!name) return;
-    if (hiddenDevNames.has(name) === hidden) return; // already correct
-
-    // Resolve a display name from the current snapshot before mutating.
-    const matchedAgent = (snapshot.agents || []).find(
-      (a) => agentRawName(a) === name
-    );
+    if (hiddenDevNames.has(name) === hidden) return;
+    const matchedAgent = (snapshot.agents || []).find((a) => agentRawName(a) === name);
     const displayName = matchedAgent?.label || matchedAgent?.name || name;
-
     if (hidden) hiddenDevNames.add(name);
     else hiddenDevNames.delete(name);
     if (!saveHiddenDevNames()) {
-      // Storage rejected it — roll back so UI and persistence agree.
       if (hidden) hiddenDevNames.delete(name);
       else hiddenDevNames.add(name);
       return;
     }
-
     if (hidden) {
       if (phoneMeta && entryRawName(phoneMeta) === name) {
         clearPhonePlayback();
@@ -1338,14 +1851,10 @@
         catchUpQueue = catchUpQueue.filter((e) => !isReplayEntryHidden(e));
       }
     }
-
     applyReplayVisibility();
-    // Realign known files with the visible list so a later SSE refresh cannot
-    // raise a stale "New message" pill for just-restored history.
     knownFiles = new Set(replayList.map((e) => e.file).filter(Boolean));
     render();
     toast(hidden ? `Hidden ${displayName}` : `Showing ${displayName}`);
-
     if (hidden) {
       if (!hiddenDevs.hidden) btnHiddenDevs.focus();
     } else {
@@ -1359,21 +1868,390 @@
     }
   }
 
+  /* ============================================================
+     §5  Messages
+     ============================================================ */
+  function unheardCount() {
+    return (replayList || []).filter(
+      (e) => e.file && !listened.has(e.file) && e.kind !== "ack"
+    ).length;
+  }
+
+  function updateBars() {
+    const n = unheardCount();
+    if (catchUpMode) {
+      btnCatchup.style.display = "";
+      btnCatchup.textContent = "Stop catch-up";
+    } else if (n > 0) {
+      btnCatchup.style.display = "";
+      btnCatchup.textContent = `Catch up (${n})`;
+    } else {
+      btnCatchup.style.display = "none";
+    }
+    btnClear.style.display = replayList.length ? "" : "none";
+  }
+
+  function renderMessages() {
+    if (!replayList.length) {
+      messagesEl.innerHTML = `<div class="empty">No messages yet</div>`;
+      updateBars();
+      return;
+    }
+    messagesEl.innerHTML = replayList
+      .map((entry, i) => {
+        const character = entryCharacter(entry);
+        const name = entryName(entry);
+        const preview = entryPreview(entry);
+        const ago = timeAgo(entry.timestamp);
+        const heard = listened.has(entry.file);
+        const playing = i === currentIndex && phoneMeta && !phonePendingTap;
+        return `
+          <button type="button" class="msg-row${playing ? " playing" : ""}" data-msg-idx="${i}">
+            <img class="avatar sm" src="${avatarSrc(character, "idle")}" alt=""
+              onerror="this.onerror=null;this.src='${avatarSrc("default", "idle")}'" />
+            <div class="msg-body">
+              <div class="msg-top">
+                <span class="msg-name">${escapeHtml(name)}</span>
+                <span class="msg-ago">${escapeHtml(ago)}</span>
+              </div>
+              <div class="msg-preview">${escapeHtml(preview)}</div>
+            </div>
+            <span class="unheard${heard ? " hidden" : ""}" aria-label="unheard"></span>
+          </button>`;
+      })
+      .join("");
+    updateBars();
+  }
+
+  function clearMessages() {
+    if (!replayList.length) return;
+    let changed = false;
+    for (const e of replayList) {
+      if (!e.file) continue;
+      if (!listened.has(e.file)) { listened.add(e.file); changed = true; }
+      if (!clearedFiles.has(e.file)) { clearedFiles.add(e.file); changed = true; }
+    }
+    if (changed) {
+      saveStrSet(LISTENED_KEY, listened);
+      saveStrSet(CLEARED_KEY, clearedFiles);
+    }
+    stopCatchUp();
+    applyReplayVisibility();
+    knownFiles = new Set(replayList.map((e) => e.file).filter(Boolean));
+    renderMessages();
+    updateBars();
+    toast("Messages cleared");
+  }
+
+  /* ============================================================
+     Catch-up (preserved)
+     ============================================================ */
+  function stopCatchUp() {
+    catchUpMode = false;
+    catchUpQueue = [];
+    updateBars();
+  }
+  async function startCatchUp() {
+    if (isMacLive()) {
+      toast("Mac is speaking — stop it first");
+      return;
+    }
+    const unheard = [...replayList]
+      .filter((e) => e.file && !listened.has(e.file) && e.kind !== "ack")
+      .reverse();
+    if (!unheard.length) {
+      toast("Nothing to catch up");
+      return;
+    }
+    catchUpMode = true;
+    catchUpQueue = unheard;
+    updateBars();
+    const next = catchUpQueue.shift();
+    await playReplayEntry(next, { fromCatchUp: true });
+  }
+  async function onTrackEnded() {
+    if (phoneMeta?.file) markListened(phoneMeta.file);
+    if (catchUpMode) catchUpQueue = catchUpQueue.filter((e) => !isReplayEntryHidden(e));
+    if (catchUpMode && catchUpQueue.length && !isMacLive()) {
+      const next = catchUpQueue.shift();
+      await playReplayEntry(next, { fromCatchUp: true });
+      return;
+    }
+    if (catchUpMode) stopCatchUp();
+    renderPlayer();
+    renderMessages();
+  }
+
+  /* ============================================================
+     Replay list fetch / visibility
+     ============================================================ */
+  async function fetchReplayList() {
+    const res = await fetch("/replay-list");
+    if (!res.ok) throw new Error("replay-list failed");
+    return await res.json();
+  }
+  function applyReplayVisibility() {
+    replayList = allReplayList.filter(
+      (entry) => !isReplayEntryHidden(entry) && !clearedFiles.has(entry.file)
+    );
+    if (phoneMeta?.file) {
+      currentIndex = replayList.findIndex((e) => e.file === phoneMeta.file);
+    } else {
+      currentIndex = -1;
+    }
+    const visibleFiles = new Set(replayList.map((e) => e.file).filter(Boolean));
+    catchUpQueue = catchUpQueue.filter((e) => e.file && visibleFiles.has(e.file));
+    if (pendingNewEntry && !visibleFiles.has(pendingNewEntry.file)) {
+      pendingNewEntry = null;
+      newPill.classList.remove("on");
+    }
+  }
+  async function refreshReplayList({ detectNew } = {}) {
+    try {
+      const list = await fetchReplayList();
+      const prevKnown = knownFiles;
+      pruneAgainst(listened, LISTENED_KEY, list);
+      pruneAgainst(clearedFiles, CLEARED_KEY, list);
+      allReplayList = Array.isArray(list) ? list : [];
+      applyReplayVisibility();
+      const newFiles = replayList.filter((e) => e.file && !prevKnown.has(e.file));
+      knownFiles = new Set(replayList.map((e) => e.file).filter(Boolean));
+      if (detectNew && newFiles.length && isPhoneIdle() && !isMacLive()) {
+        pendingNewEntry = newFiles[0];
+        newPill.classList.add("on");
+      }
+      renderMessages();
+      renderPlayer();
+    } catch {
+      /* keep prior list */
+    }
+  }
+
+  /* ============================================================
+     §4  Header render + §6 picker helpers
+     ============================================================ */
+  function renderHeader() {
+    heldPill.hidden = !snapshot.roomHeld;
+    $("mi-hold").textContent = snapshot.roomHeld ? "Release room" : "Hold room";
+  }
+
+  function render() {
+    renderHeader();
+    renderMembers();
+    renderHiddenDevs();
+    renderMessages();
+    enforceArbitration();
+    renderPlayer();
+  }
+
+  /* ============================================================
+     Karaoke / progress tick
+     ============================================================ */
+  function tick() {
+    const ps = computePlayerState();
+    if (ps.kind === "mac-live") {
+      updateExpandedKaraoke();
+      updatePlayerProgress();
+      renderMiniChrome();
+    } else if (ps.kind === "phone-replay" && !audio.paused && !phonePendingTap) {
+      updateExpandedKaraoke();
+      updatePlayerProgress();
+      checkListenedProgress();
+    }
+  }
+
+  function checkListenedProgress() {
+    if (!phoneMeta?.file) return;
+    const dur = trackDurationSec();
+    const cur = audio.currentTime || 0;
+    if (dur > 0 && cur / dur >= 0.8) markListened(phoneMeta.file);
+  }
+
+  /* ============================================================
+     §6  Session picker
+     ============================================================ */
+  let pickerData = null;
+  let pickerTab = "new";
+  let pickerPersona = null;
+
+  async function openPicker() {
+    picker.hidden = false;
+    pickerBackdrop.hidden = false;
+    requestAnimationFrame(() => picker.classList.add("open"));
+    pickerList.innerHTML = `<div class="empty">Loading…</div>`;
+    pickerPersonas.innerHTML = "";
+    try {
+      const res = await fetch("/picker");
+      if (!res.ok) throw new Error("no picker");
+      pickerData = await res.json();
+    } catch {
+      pickerData = null;
+      pickerList.innerHTML = `<div class="empty">Session picker unavailable</div>`;
+      return;
+    }
+    const personas = Array.isArray(pickerData.personas) ? pickerData.personas : [];
+    pickerPersona = personas.length ? personas[0] : null;
+    renderPicker();
+  }
+  function closePicker() {
+    picker.classList.remove("open");
+    pickerBackdrop.hidden = true;
+    setTimeout(() => { picker.hidden = true; }, 260);
+  }
+  function renderPicker() {
+    if (!pickerData) return;
+    const personas = Array.isArray(pickerData.personas) ? pickerData.personas : [];
+    pickerPersonas.innerHTML = personas.length
+      ? personas
+          .map(
+            (p) =>
+              `<button type="button" class="persona-chip${
+                p === pickerPersona ? " active" : ""
+              }" data-persona="${escapeHtml(p)}">${escapeHtml(p)}</button>`
+          )
+          .join("")
+      : `<span class="chip">default</span>`;
+
+    for (const t of picker.querySelectorAll(".tab")) {
+      t.classList.toggle("active", t.getAttribute("data-tab") === pickerTab);
+    }
+
+    if (pickerTab === "new") {
+      const dirs = Array.isArray(pickerData.dirs) ? pickerData.dirs : [];
+      pickerList.innerHTML = dirs.length
+        ? dirs
+            .map((d) => {
+              const dir = typeof d === "string" ? d : d?.dir || d?.path || "";
+              const label =
+                (typeof d === "object" && (d.label || d.name)) ||
+                dir.split("/").filter(Boolean).pop() ||
+                dir;
+              return `<button type="button" class="picker-row" data-spawn-dir="${escapeHtml(
+                dir
+              )}"><div class="picker-row-label">${escapeHtml(
+                label
+              )}</div><div class="picker-row-sub">${escapeHtml(dir)}</div></button>`;
+            })
+            .join("")
+        : `<div class="empty">No known directories</div>`;
+    } else {
+      const rs = Array.isArray(pickerData.resumable) ? pickerData.resumable : [];
+      pickerList.innerHTML = rs.length
+        ? rs
+            .map((r) => {
+              const sid = r?.sessionId || r?.id || "";
+              const dir = r?.dir || r?.path || "";
+              const label = r?.label || r?.name || dir.split("/").filter(Boolean).pop() || sid.slice(0, 8);
+              return `<button type="button" class="picker-row" data-resume-id="${escapeHtml(
+                sid
+              )}" data-resume-dir="${escapeHtml(dir)}"><div class="picker-row-label">${escapeHtml(
+                label
+              )}</div><div class="picker-row-sub">${escapeHtml(dir)}</div></button>`;
+            })
+            .join("")
+        : `<div class="empty">No resumable sessions</div>`;
+    }
+  }
+
+  /* ============================================================
+     Event wiring
+     ============================================================ */
+  // Members (cards) — delegated.
   members.addEventListener("click", (ev) => {
     const t = ev.target;
     if (!(t instanceof HTMLElement)) return;
     const hideBtn = t.closest("[data-hide-dev]");
-    if (hideBtn) {
-      setDevHidden(hideBtn.getAttribute("data-hide-dev"), true);
+    if (hideBtn) { setDevHidden(hideBtn.getAttribute("data-hide-dev"), true); return; }
+
+    const grantEl = t.closest("[data-grant]");
+    if (grantEl) {
+      const sessionId = grantEl.getAttribute("data-grant");
+      if (outputPref === "phone") {
+        primeAudio();
+        postAction({ type: "grant", sessionId, output: "phone" });
+        toast("Reading on this phone…");
+      } else {
+        postAction({ type: "grant", sessionId, output: "mac" });
+        toast("Reading on Mac…");
+      }
       return;
     }
-    const playId = t.getAttribute("data-play");
-    if (playId) {
-      playForSession(playId);
+
+    const replayEl = t.closest("[data-replay]");
+    if (replayEl) {
+      const agent = agentForSession(replayEl.getAttribute("data-replay"));
+      if (agent) replayForAgent(agent);
       return;
     }
-    const grantId = t.getAttribute("data-grant");
-    if (grantId) postAction({ type: "grant", sessionId: grantId });
+
+    const blocked = t.closest("[data-reply-blocked]");
+    if (blocked) { toast("Not in team room — respawn from ＋ to enable"); return; }
+
+    const replyToggle = t.closest("[data-reply-toggle]");
+    if (replyToggle) {
+      const id = replyToggle.getAttribute("data-reply-toggle");
+      openReplySession = openReplySession === id ? null : id;
+      renderMembers();
+      if (openReplySession) {
+        const ta = members.querySelector(`.reply-input[data-reply-for="${id}"]`);
+        if (ta) ta.focus();
+      }
+      return;
+    }
+
+    const cancel = t.closest("[data-reply-cancel]");
+    if (cancel) {
+      const id = cancel.getAttribute("data-reply-cancel");
+      delete replyDrafts[id];
+      if (openReplySession === id) openReplySession = null;
+      renderMembers();
+      return;
+    }
+
+    const send = t.closest("[data-reply-send]");
+    if (send) {
+      const id = send.getAttribute("data-reply-send");
+      const box = send.closest(".reply-box");
+      const ta = box ? box.querySelector(".reply-input") : null;
+      if (ta) sendReply(id, ta);
+      return;
+    }
+  });
+
+  // Persist reply drafts as the owner types (survives re-render).
+  members.addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (t instanceof HTMLElement && t.classList.contains("reply-input")) {
+      const id = t.getAttribute("data-reply-for");
+      if (id) replyDrafts[id] = t.value;
+    }
+  });
+
+  // Expanded reply box (static wrapper).
+  expReplyWrap.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const send = t.closest("[data-reply-send]");
+    if (send) {
+      const id = send.getAttribute("data-reply-send");
+      const box = send.closest(".reply-box");
+      const ta = box ? box.querySelector(".reply-input") : null;
+      if (ta) sendReply(id, ta);
+      return;
+    }
+    const cancel = t.closest("[data-reply-cancel]");
+    if (cancel) {
+      const box = cancel.closest(".reply-box");
+      const ta = box ? box.querySelector(".reply-input") : null;
+      if (ta) ta.value = "";
+    }
+  });
+  expReplyWrap.addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (t instanceof HTMLElement && t.classList.contains("reply-input")) {
+      const id = t.getAttribute("data-reply-for");
+      if (id) replyDrafts[id] = t.value;
+    }
   });
 
   btnHiddenDevs.addEventListener("click", () => {
@@ -1382,7 +2260,6 @@
     btnHiddenDevs.setAttribute("aria-expanded", String(next));
     hiddenDevsList.hidden = !next;
   });
-
   hiddenDevsList.addEventListener("click", (ev) => {
     const t = ev.target;
     if (!(t instanceof HTMLElement)) return;
@@ -1397,98 +2274,157 @@
     const row = t.closest("[data-msg-idx]");
     if (!row) return;
     const idx = Number(row.getAttribute("data-msg-idx"));
-    if (!Number.isFinite(idx)) return;
-    playAtIndex(idx);
+    if (Number.isFinite(idx)) playAtIndex(idx);
   });
 
-  $("btn-pause").addEventListener("click", async () => {
-    const wasPaused = !!snapshot.paused;
-    const ok = await postAction({ type: "pause" });
-    if (ok) toast(wasPaused ? "Mac playback resumed" : "Mac playback paused");
+  // Header: overflow, new, held pill.
+  $("btn-overflow").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (overflowMenu.hidden) {
+      const r = $("btn-overflow").getBoundingClientRect();
+      overflowMenu.style.top = `${r.bottom + 6}px`;
+      overflowMenu.style.right = `${window.innerWidth - r.right}px`;
+      overflowMenu.hidden = false;
+    } else {
+      overflowMenu.hidden = true;
+    }
   });
-  $("btn-stop").addEventListener("click", async () => {
-    const ok = await postAction({ type: "stop" });
-    if (ok) toast("Mac playback stopped");
-  });
-  $("btn-hold").addEventListener("click", async () => {
+  $("mi-hold").addEventListener("click", async () => {
+    overflowMenu.hidden = true;
     const wasHeld = !!snapshot.roomHeld;
     const ok = await postAction({ type: "hold_room" });
     if (ok) toast(wasHeld ? "Room released" : "Room held");
   });
+  heldPill.addEventListener("click", async () => {
+    const ok = await postAction({ type: "hold_room" });
+    if (ok) toast("Room released");
+  });
+  $("btn-new").addEventListener("click", () => openPicker());
 
+  // Close popovers on outside click.
+  document.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!overflowMenu.hidden && t instanceof HTMLElement &&
+        !overflowMenu.contains(t) && t.id !== "btn-overflow") {
+      overflowMenu.hidden = true;
+    }
+  });
+
+  // Messages bars.
   btnCatchup.addEventListener("click", () => {
     if (catchUpMode) {
       stopCatchUp();
       audio.pause();
-      updatePlayerChrome();
+      renderPlayer();
       return;
     }
     startCatchUp();
   });
+  btnClear.addEventListener("click", () => clearMessages());
 
-  btnPp.addEventListener("click", async () => {
-    if (!audio.src) {
-      await playLatest();
-      return;
-    }
-    if (audio.paused) {
-      try {
-        await audio.play();
-      } catch {
-        toast("Tap again to play");
-      }
-    } else {
-      audio.pause();
-    }
-    updatePlayerChrome();
-  });
+  // Mini player.
+  miniPp.addEventListener("click", (ev) => { ev.stopPropagation(); transportPlayPause(); });
+  $("mini-tap").addEventListener("click", () => openExpanded());
 
-  $("btn-prev").addEventListener("click", () => {
+  // Expanded controls.
+  btnPp.addEventListener("click", () => transportPlayPause());
+  btnStop.addEventListener("click", () => transportStop());
+  btnPrev.addEventListener("click", () => {
     if (currentIndex > 0) playAtIndex(currentIndex - 1);
   });
-  $("btn-next").addEventListener("click", () => {
+  btnNext.addEventListener("click", () => {
     if (currentIndex >= 0 && currentIndex < replayList.length - 1) {
       playAtIndex(currentIndex + 1);
     }
   });
+  $("exp-collapse").addEventListener("click", () => closeExpanded());
+  expDeviceRow.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const seg = t.closest("[data-device]");
+    if (seg) setOutput(seg.getAttribute("data-device"));
+  });
 
-  btnLatest.addEventListener("click", () => playLatest());
+  // Progress seek (phone-replay only).
+  $("progress").addEventListener("click", (ev) => {
+    if (computePlayerState().kind !== "phone-replay") return;
+    const dur = trackDurationSec();
+    if (dur <= 0) return;
+    const rect = $("progress").getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+    try { audio.currentTime = frac * dur; } catch { /* not seekable yet */ }
+    updatePlayerProgress();
+    checkListenedProgress();
+  });
 
-  btnNow.addEventListener("click", () => {
-    if (!phoneMeta) return;
-    sheet.classList.toggle("open");
-    if (sheet.classList.contains("open")) updatePhoneKaraoke();
+  // Swipe-down to collapse expanded.
+  let touchStartY = null;
+  expanded.addEventListener("touchstart", (ev) => {
+    if (expanded.scrollTop > 0) { touchStartY = null; return; }
+    touchStartY = ev.touches[0].clientY;
+  }, { passive: true });
+  expanded.addEventListener("touchmove", (ev) => {
+    if (touchStartY === null) return;
+    const dy = ev.touches[0].clientY - touchStartY;
+    if (dy > 0) expanded.style.transform = `translateY(${Math.min(dy, 400)}px)`;
+  }, { passive: true });
+  expanded.addEventListener("touchend", (ev) => {
+    if (touchStartY === null) return;
+    const dy = (ev.changedTouches[0]?.clientY || touchStartY) - touchStartY;
+    expanded.style.transform = "";
+    if (dy > 90) closeExpanded();
+    touchStartY = null;
   });
 
   newPill.addEventListener("click", () => {
     if (pendingNewEntry) playReplayEntry(pendingNewEntry);
   });
 
-  $("progress").addEventListener("click", (ev) => {
-    const dur = trackDurationSec();
-    if (dur <= 0) return;
-    const rect = $("progress").getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
-    try {
-      audio.currentTime = frac * dur;
-    } catch {
-      /* some streams reject seeks until buffered */
-    }
-    updateProgress();
-    checkListenedProgress();
-  });
-
-  audio.addEventListener("ended", () => {
-    onTrackEnded();
-  });
-  audio.addEventListener("play", () => updatePlayerChrome());
-  audio.addEventListener("pause", () => updatePlayerChrome());
+  // Audio element events.
+  audio.addEventListener("ended", () => onTrackEnded());
+  audio.addEventListener("play", () => renderPlayer());
+  audio.addEventListener("pause", () => renderPlayer());
   audio.addEventListener("timeupdate", () => {
-    updateProgress();
+    updatePlayerProgress();
     checkListenedProgress();
   });
-  audio.addEventListener("loadedmetadata", () => updateProgress());
+  audio.addEventListener("loadedmetadata", () => updatePlayerProgress());
 
+  // Picker wiring.
+  pickerBackdrop.addEventListener("click", () => closePicker());
+  picker.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const tab = t.closest("[data-tab]");
+    if (tab) { pickerTab = tab.getAttribute("data-tab"); renderPicker(); return; }
+    const persona = t.closest("[data-persona]");
+    if (persona) { pickerPersona = persona.getAttribute("data-persona"); renderPicker(); return; }
+    const spawn = t.closest("[data-spawn-dir]");
+    if (spawn) {
+      const dir = spawn.getAttribute("data-spawn-dir");
+      const body = { type: "spawn_session", dir };
+      if (pickerPersona) body.persona = pickerPersona;
+      postAction(body);
+      toast("Starting session…");
+      closePicker();
+      return;
+    }
+    const resume = t.closest("[data-resume-id]");
+    if (resume) {
+      const sessionId = resume.getAttribute("data-resume-id");
+      const dir = resume.getAttribute("data-resume-dir");
+      const body = { type: "resume_session", sessionId, dir };
+      if (pickerPersona) body.persona = pickerPersona;
+      postAction(body);
+      toast("Resuming session…");
+      closePicker();
+      return;
+    }
+  });
+
+  /* ============================================================
+     SSE
+     ============================================================ */
   function nowPlayingKey(np) {
     if (!np) return null;
     return `${np.sessionId || ""}|${np.startedAt || ""}|${(np.text || "").slice(0, 40)}`;
@@ -1508,12 +2444,16 @@
         if (nextKey && nextKey !== prevKey) {
           lastNowPlayingKey = nextKey;
           refreshReplayList({ detectNew: true });
+          // Grant-to-phone: play exactly replayFile when routed to the phone.
+          // Fired once per new now-playing to avoid restart on repeat frames.
+          const np = next.nowPlaying;
+          if (isNowPlayingActive(np) && np.output === "phone" && np.replayFile) {
+            maybePlayGrantToPhone(np);
+          }
         } else if (!nextKey) {
           lastNowPlayingKey = null;
         }
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     };
   }
 
@@ -1525,18 +2465,17 @@
       ]);
       if (snapRes.ok) snapshot = await snapRes.json();
       if (charsRes.ok) charactersPayload = await charsRes.json();
-    } catch {
-      /* SSE will fill in */
-    }
+    } catch { /* SSE fills in */ }
     lastNowPlayingKey = nowPlayingKey(snapshot.nowPlaying);
-    try {
-      await refreshReplayList();
-    } catch {
-      /* empty until later */
-    }
+    try { await refreshReplayList(); } catch { /* empty until later */ }
     render();
+    // If we boot into an active phone-routed grant, pick it up.
+    const np = snapshot.nowPlaying;
+    if (isNowPlayingActive(np) && np.output === "phone" && np.replayFile) {
+      maybePlayGrantToPhone(np);
+    }
     connectSse();
-    karaokeTimer = setInterval(tickKaraoke, 80);
+    karaokeTimer = setInterval(tick, 80);
   }
 
   boot();
