@@ -24,6 +24,7 @@ import {
   acquireLock,
   stopCurrent,
   playStreamBuffer,
+  activePhoneGrantId,
   type ReplayMeta,
   type PlaybackContext,
 } from "./audio.js";
@@ -153,6 +154,18 @@ async function processQueueFile(
       return;
     }
 
+    // Admission re-check for grants, post-lock but pre-Gemini: a phone grant
+    // releases the stream lock right after saving (its playback window is the
+    // phone's, not the Mac's), so a grant that queued up behind it must not
+    // sail into synthesis while that window is still open.
+    if (process.env.CR_GRANTED === "1") {
+      const activeGrant = activePhoneGrantId();
+      if (activeGrant && activeGrant !== name) {
+        log("server", `Phone grant ${activeGrant} window open — leaving ${name} queued`);
+        return;
+      }
+    }
+
     const voiceId = resolveVoiceId(sessionId);
     if (!voiceId) {
       log("server", "No voice ID configured — skip");
@@ -211,6 +224,11 @@ async function processQueueFile(
     // CR_OUTPUT is set by dispatchPanelAction → grant_floor.sh → play_node.sh.
     const sink = process.env.CR_OUTPUT === "phone" ? ("none" as const) : ("ffplay" as const);
 
+    // Phone sink retires the queue item as soon as the replay is durably
+    // saved — a crash during the playback-window wait must not leave the
+    // already-billed item re-buyable in queue/.
+    const onPersisted = sink === "none" ? () => moveToPlayed(filePath) : undefined;
+
     // Granted readout: prefer the with-timestamps stream (same cost, free
     // word-level alignment for karaoke captions); fall back to plain streaming
     // if the endpoint/SDK call fails.
@@ -224,7 +242,8 @@ async function processQueueFile(
         ctx,
         replayMeta,
         timestamped.getWords,
-        sink
+        sink,
+        onPersisted
       );
     } else {
       const stream = await streamTTS(processed, { voiceId });
@@ -234,7 +253,7 @@ async function processQueueFile(
         return;
       }
       log("server", `Playing: ${name} (${processed.length} chars, no captions)`);
-      code = await playStreamBuffer(stream as any, filePath, ctx, replayMeta, undefined, sink);
+      code = await playStreamBuffer(stream as any, filePath, ctx, replayMeta, undefined, sink, onPersisted);
     }
     // TTS succeeded and credits are spent — move to played regardless of
     // exit code. A stopped playback shouldn't leave the item re-buyable;
@@ -249,7 +268,8 @@ async function processQueueFile(
     ) {
       await maybePlayVictoryLine(voiceId);
     }
-    moveToPlayed(filePath);
+    // Phone sink already moved it via onPersisted.
+    if (existsSync(filePath)) moveToPlayed(filePath);
   } catch (err: any) {
     log("server", `Error processing ${name}: ${err.message}`);
     if (existsSync(filePath)) moveToFailed(filePath);

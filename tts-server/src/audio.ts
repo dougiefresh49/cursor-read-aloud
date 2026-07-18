@@ -118,18 +118,25 @@ export function phoneGrantDurationMs(alignment?: AlignmentTuples): number {
 
 const PHONE_GRANT_SLACK_MS = 5_000;
 
+/** grantId of the phone grant whose playback window is still open, else null. */
+export function activePhoneGrantId(): string | null {
+  try {
+    if (!existsSync(NOW_PLAYING_PATH)) return null;
+    const np = JSON.parse(readFileSync(NOW_PLAYING_PATH, "utf-8")) as NowPlaying;
+    if (!np || np.endedAt || np.output !== "phone" || !np.grantId) return null;
+    const start = Date.parse(np.startedAt);
+    if (!Number.isFinite(start)) return null;
+    const open =
+      Date.now() < start + phoneGrantDurationMs(np.alignment) + PHONE_GRANT_SLACK_MS;
+    return open ? np.grantId : null;
+  } catch {
+    return null;
+  }
+}
+
 /** True while a phone grant's now-playing window has not yet expired. */
 export function isUnexpiredPhoneGrant(): boolean {
-  try {
-    if (!existsSync(NOW_PLAYING_PATH)) return false;
-    const np = JSON.parse(readFileSync(NOW_PLAYING_PATH, "utf-8")) as NowPlaying;
-    if (!np || np.endedAt || np.output !== "phone") return false;
-    const start = Date.parse(np.startedAt);
-    if (!Number.isFinite(start)) return false;
-    return Date.now() < start + phoneGrantDurationMs(np.alignment) + PHONE_GRANT_SLACK_MS;
-  } catch {
-    return false;
-  }
+  return activePhoneGrantId() !== null;
 }
 
 // Playback over: don't delete — stamp endedAt so the panel can keep showing
@@ -435,7 +442,8 @@ async function playStreamToPhone(
   ctx: PlaybackContext,
   replayMeta: ReplayMeta | undefined,
   getWords: (() => WordTiming[]) | undefined,
-  tempoRate: number
+  tempoRate: number,
+  onPersisted?: () => void
 ): Promise<number> {
   const grantId = basename(queueFile);
   const captioned = !!getWords && ctx !== "meta";
@@ -456,9 +464,11 @@ async function playStreamToPhone(
   }
 
   const alignment = captioned ? toTuples(getWords!()) : undefined;
-  if (captioned && replayMeta) {
-    replayMeta.alignment = alignment;
+  if (replayMeta) {
+    // Rate always persisted — the phone plays this sidecar and must not lose
+    // the residual tempo when the timestamps path fell back (no alignment).
     replayMeta.playbackRate = tempoRate;
+    if (captioned) replayMeta.alignment = alignment;
   }
 
   // Ordering contract: replay file FIRST, then now-playing (SSE race fix).
@@ -477,6 +487,11 @@ async function playStreamToPhone(
     });
   }
 
+  // Credits are spent and the audio is durably saved — retire the queue item
+  // NOW, not after the playback window, so a crash mid-wait can't leave it
+  // re-buyable.
+  onPersisted?.();
+
   // Mac audio pipeline is free; phone playback doesn't hold the stream lock.
   releaseLock();
 
@@ -490,7 +505,11 @@ async function playStreamToPhone(
   );
   await sleep(waitMs);
 
-  clearNowPlaying();
+  // Compare-and-set: newer playback (e.g. Mac auto-play) may own now-playing
+  // by the time our window closes — never stamp someone else's record.
+  if (activePhoneGrantId() === grantId) {
+    clearNowPlaying();
+  }
   endSessionPlayback(ctx, grantId);
   return 0;
 }
@@ -503,7 +522,10 @@ export function playStreamBuffer(
   // When provided (timestamps path), poll accumulated word timings and thread
   // them into .now-playing.json (live) + the replay sidecar (persisted).
   getWords?: () => WordTiming[],
-  sink: StreamSink = "ffplay"
+  sink: StreamSink = "ffplay",
+  // Called once the replay + now-playing are durably written (phone sink) —
+  // the caller retires the queue item here, before the playback-window wait.
+  onPersisted?: () => void
 ): Promise<number> {
   return new Promise(async (resolve) => {
     const config = loadConfig();
@@ -513,7 +535,15 @@ export function playStreamBuffer(
 
     if (sink === "none") {
       resolve(
-        await playStreamToPhone(audioStream, queueFile, ctx, replayMeta, getWords, tempoRate)
+        await playStreamToPhone(
+          audioStream,
+          queueFile,
+          ctx,
+          replayMeta,
+          getWords,
+          tempoRate,
+          onPersisted
+        )
       );
       return;
     }

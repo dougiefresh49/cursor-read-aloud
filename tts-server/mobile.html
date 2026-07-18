@@ -1451,6 +1451,12 @@
   function primeAudio() {
     // Unlock <audio> inside a user gesture so a later SSE-driven play() works.
     if (audioUnlocked) return;
+    // An element that's actively playing is already unlocked — replacing its
+    // src with the silent primer would kill the in-progress replay.
+    if (phoneMeta && audio.src && !audio.paused && !audio.ended) {
+      audioUnlocked = true;
+      return;
+    }
     try {
       audio.muted = true;
       audio.src = SILENT_WAV;
@@ -1529,10 +1535,12 @@
       return;
     }
     const displayName = agent.label || agent.name;
-    let entry = replayList.find((e) => e.sessionId === agent.sessionId);
+    // Search the FULL catalog — "Clear messages" hides entries from the
+    // Messages list, but a card's Replay last should still find them.
+    let entry = allReplayList.find((e) => e.sessionId === agent.sessionId);
     if (!entry) {
       const raw = agentRawName(agent);
-      entry = replayList.find(
+      entry = allReplayList.find(
         (e) => String(e.sessionName || "").trim() === raw
       );
     }
@@ -2166,14 +2174,12 @@
     const grantEl = t.closest("[data-grant]");
     if (grantEl) {
       const sessionId = grantEl.getAttribute("data-grant");
-      if (outputPref === "phone") {
-        primeAudio();
-        postAction({ type: "grant", sessionId, output: "phone" });
-        toast("Reading on this phone…");
-      } else {
-        postAction({ type: "grant", sessionId, output: "mac" });
-        toast("Reading on Mac…");
-      }
+      const toPhone = outputPref === "phone";
+      if (toPhone) primeAudio();
+      postAction({ type: "grant", sessionId, output: toPhone ? "phone" : "mac" }).then((r) => {
+        if (r) toast(toPhone ? "Reading on this phone…" : "Reading on Mac…");
+        else toast("Couldn't start — another update may be playing");
+      });
       return;
     }
 
@@ -2404,8 +2410,9 @@
       const dir = spawn.getAttribute("data-spawn-dir");
       const body = { type: "spawn_session", dir };
       if (pickerPersona) body.persona = pickerPersona;
-      postAction(body);
-      toast("Starting session…");
+      postAction(body).then((r) => {
+        toast(r ? "Starting session…" : "Couldn't start session");
+      });
       closePicker();
       return;
     }
@@ -2415,8 +2422,9 @@
       const dir = resume.getAttribute("data-resume-dir");
       const body = { type: "resume_session", sessionId, dir };
       if (pickerPersona) body.persona = pickerPersona;
-      postAction(body);
-      toast("Resuming session…");
+      postAction(body).then((r) => {
+        toast(r ? "Resuming session…" : "Couldn't resume session");
+      });
       closePicker();
       return;
     }
