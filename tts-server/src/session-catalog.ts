@@ -180,15 +180,36 @@ export function listPersonas(): string[] {
   }
 }
 
-/** Payload for GET /picker — dirs + resumable sessions + personas. */
+/** Non-hidden directories directly under ~/projects (mobile "All projects"). */
+export function listProjectsDirs(): { name: string; dir: string }[] {
+  const root = join(homedir(), "projects");
+  if (!existsSync(root)) return [];
+  const out: { name: string; dir: string }[] = [];
+  for (const name of readdirSync(root)) {
+    if (name.startsWith(".")) continue;
+    const dir = join(root, name);
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    out.push({ name, dir });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/** Payload for GET /picker — dirs + resumable sessions + personas + projectsDirs. */
 export function pickerPayload(): {
   dirs: string[];
   resumable: ResumableSession[];
   personas: string[];
+  projectsDirs: { name: string; dir: string }[];
 } {
   return {
     dirs: knownDirs(),
     resumable: listResumable(),
     personas: listPersonas(),
+    projectsDirs: listProjectsDirs(),
   };
 }

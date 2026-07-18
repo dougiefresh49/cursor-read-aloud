@@ -14,7 +14,7 @@ import { runStatusSay } from "./status-say.js";
 import { knownDirs, isResumableSession, listResumable } from "./session-catalog.js";
 import { HID_ACTIONS, captureNextPress, isCaptureReady } from "./hid.js";
 import { buildShortcutsPayload } from "./shortcuts.js";
-import { isUnexpiredPhoneGrant } from "./audio.js";
+import { isUnexpiredPhoneGrant, startPlayReplay } from "./audio.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHARACTERS_PATH = join(__dirname, "characters.json");
@@ -72,6 +72,7 @@ export type PanelMessage =
   | { type: "replay" }
   | { type: "replay_slower" }
   | { type: "replay_session"; sessionId: string }
+  | { type: "play_replay"; file: string; offsetSec?: number }
   | { type: "restart" }
   | { type: "stop" }
   | { type: "pause" }
@@ -531,6 +532,31 @@ export function validatePanelMessage(raw: unknown): PanelMessage | "bad_message"
     case "known_dirs":
       if (keys.length !== 1) return "bad_message";
       return { type: msg.type };
+    case "play_replay": {
+      if (typeof msg.file !== "string" || !msg.file) return "bad_message";
+      // Bare filename only — no path separators / traversal.
+      if (
+        msg.file.includes("/") ||
+        msg.file.includes("\\") ||
+        msg.file.includes("\0") ||
+        msg.file === "." ||
+        msg.file === ".."
+      ) {
+        return "bad_message";
+      }
+      if (keys.length === 2) {
+        return { type: "play_replay", file: msg.file };
+      }
+      if (
+        keys.length === 3 &&
+        typeof msg.offsetSec === "number" &&
+        Number.isFinite(msg.offsetSec) &&
+        msg.offsetSec >= 0
+      ) {
+        return { type: "play_replay", file: msg.file, offsetSec: msg.offsetSec };
+      }
+      return "bad_message";
+    }
     case "spawn_session":
       if (
         keys.length !== 3 ||
@@ -800,6 +826,7 @@ const MOBILE_ACTION_TYPES = new Set([
   "replay",
   "replay_slower",
   "replay_session",
+  "play_replay",
   "pause",
   "stop",
   "hold_room",
@@ -838,6 +865,9 @@ function dispatch(msg: PanelMessage): void {
     case "replay_session":
       runSignalReplay(undefined, msg.sessionId);
       return;
+    case "play_replay":
+      // Handled synchronously in dispatchPanelAction (lock + file checks).
+      return;
     case "restart":
       runScript("restart.sh", []);
       return;
@@ -868,6 +898,10 @@ export function dispatchPanelAction(raw: unknown): boolean {
   }
   if (msg.type === "resume_session") {
     return validateAndResume(msg.sessionId, msg.dir, msg.persona) === "ok";
+  }
+  if (msg.type === "play_replay") {
+    // Missing file or stream lock held → 400. Free path (no synthesis).
+    return startPlayReplay(msg.file, msg.offsetSec ?? 0);
   }
 
   if (

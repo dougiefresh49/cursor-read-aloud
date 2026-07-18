@@ -283,6 +283,28 @@ export function releaseLock(): void {
   } catch {}
 }
 
+/**
+ * Compare-and-set: stamp replayFile into .now-playing.json only if the record
+ * still belongs to this playback (sessionId + startedAt). Works for live or
+ * endedAt records — never clobbers a newer playback.
+ */
+function stampReplayFileCas(
+  sessionId: string,
+  startedAt: string,
+  replayFile: string
+): void {
+  try {
+    if (!existsSync(NOW_PLAYING_PATH)) return;
+    const cur = JSON.parse(readFileSync(NOW_PLAYING_PATH, "utf-8")) as NowPlaying;
+    if (cur.sessionId !== sessionId || cur.startedAt !== startedAt) return;
+    if (cur.replayFile === replayFile) return;
+    cur.replayFile = replayFile;
+    const tmp = `${NOW_PLAYING_PATH}.tmp.${process.pid}`;
+    writeFileSync(tmp, JSON.stringify(cur));
+    renameSync(tmp, NOW_PLAYING_PATH);
+  } catch {}
+}
+
 export function stopCurrent(): void {
   if (currentProcess && !currentProcess.killed) {
     // A paused (SIGSTOPped) player never receives SIGTERM — resume first,
@@ -588,22 +610,37 @@ export function playStreamBuffer(
     writeFileSync(AUDIO_REF, "streaming");
 
     const replayChunks: Uint8Array[] = [];
+    // Early-stop drain: keep consuming ElevenLabs after ffplay dies (credits
+    // already spent) so the replay file is complete. Hard-capped at 90s from
+    // player-kill (not stream start).
+    const DRAIN_CAP_MS = 90_000;
+    let streamDone = false;
+    let playerClosed = false;
+    let replaySaved = false;
+    let drainDeadline: number | null = null;
+
+    const saveAndStampReplay = () => {
+      if (replaySaved || replayChunks.length === 0) return;
+      replaySaved = true;
+      if (replayMeta) {
+        replayMeta.playbackRate = tempoRate;
+        if (captioned) replayMeta.alignment = toTuples(getWords!());
+      }
+      const filename = saveReplayFile(replayChunks, queueFile, replayMeta);
+      // B2: stamp into live or endedAt now-playing (CAS on sessionId+startedAt).
+      if (filename && sessionId) {
+        stampReplayFileCas(sessionId, startedAt, filename);
+      }
+    };
 
     let settled = false;
     const stopHealer = startSuspendHealer(child);
-    const settle = (code: number, saveReplay: boolean) => {
+    const settle = (code: number) => {
       if (settled) return;
       settled = true;
       stopHealer();
       if (currentProcess === child) currentProcess = null;
       cleanup();
-      if (saveReplay && replayChunks.length > 0) {
-        if (captioned && replayMeta) {
-          replayMeta.alignment = toTuples(getWords!());
-          replayMeta.playbackRate = tempoRate;
-        }
-        saveReplayFile(replayChunks, queueFile, replayMeta);
-      }
       // The queue file being played is still in queue/ here — the daemon moves
       // it to played/ only after this promise resolves — so exclude it from the
       // recompute scan, or it would re-derive a phantom hand for itself.
@@ -616,29 +653,91 @@ export function playStreamBuffer(
     // killed mid-stream, which would otherwise crash the watcher.
     child.on("error", (err) => {
       log("audio", `ffplay spawn error: ${err.message}`);
-      settle(1, false);
+      playerClosed = true;
+      settle(1);
     });
     child.stdin?.on("error", () => {});
 
-    child.on("close", (code) => settle(code ?? 0, true));
+    child.on("close", (code) => {
+      playerClosed = true;
+      if (streamDone) {
+        // Normal path: stream already finished (and usually already saved).
+        saveAndStampReplay();
+        settle(code ?? 0);
+        return;
+      }
+      // Early stop (stop button / handoff): free the room immediately; a
+      // detached drain keeps filling replayChunks and saves on completion/cap.
+      drainDeadline = Date.now() + DRAIN_CAP_MS;
+      releaseLock();
+      settle(code ?? 0);
+    });
 
     try {
       for await (const chunk of audioStream) {
         replayChunks.push(chunk);
-        if (child.stdin && !child.stdin.destroyed) {
+        if (!playerClosed && child.stdin && !child.stdin.destroyed) {
           child.stdin.write(chunk);
         }
-        pushAlignment();
+        if (!playerClosed) pushAlignment();
+        // Detached drain after player-kill — stop at the hard cap.
+        if (
+          playerClosed &&
+          drainDeadline != null &&
+          Date.now() >= drainDeadline
+        ) {
+          log("audio", "Early-stop drain hit 90s cap — saving what we have");
+          break;
+        }
       }
-      child.stdin?.end();
-      // Network stream finishes well ahead of realtime playback — flush the
-      // full alignment now so the panel has every word before audio drains.
-      pushAlignment(true);
+      streamDone = true;
+      if (!playerClosed) {
+        child.stdin?.end();
+        // Network stream finishes well ahead of realtime playback — flush the
+        // full alignment now so the panel has every word before audio drains.
+        pushAlignment(true);
+        // Full audio is in hand while ffplay is still playing — save + stamp
+        // so a mid-playback handoff already has replayFile on the record.
+        saveAndStampReplay();
+      } else {
+        // Player died first: this is the detached drain completing (or capped).
+        saveAndStampReplay();
+      }
     } catch (err: any) {
       log("audio", `Stream pipe error: ${err.message}`);
-      child.kill("SIGTERM");
+      streamDone = true;
+      if (!playerClosed) {
+        child.kill("SIGTERM");
+      } else {
+        // Drain blew up after early stop — still persist what we buffered.
+        saveAndStampReplay();
+      }
     }
   });
+}
+
+function loadReplayAttribution(filePath: string): {
+  ctx: PlaybackContext;
+  meta?: ReplayMeta;
+} {
+  let ctx: PlaybackContext = "meta";
+  let meta: ReplayMeta | undefined;
+  try {
+    const sidecarPath = filePath.replace(/\.mp3$/, ".json");
+    if (existsSync(sidecarPath)) {
+      const parsed = JSON.parse(readFileSync(sidecarPath, "utf-8")) as ReplayMeta;
+      meta = parsed;
+      if (
+        parsed.sessionId &&
+        existsSync(join(STATE_DIR, `${parsed.sessionId}.json`))
+      ) {
+        ctx = { sessionId: parsed.sessionId };
+      }
+    }
+  } catch {
+    meta = undefined;
+  }
+  return { ctx, meta };
 }
 
 export function replayLast(
@@ -671,29 +770,76 @@ export function replayLast(
 
     // Session-attributed when the sidecar names a still-alive session; otherwise
     // meta (orphan/corrupt/missing sidecar — same as pre-attribution behavior).
-    let ctx: PlaybackContext = "meta";
-    let meta: ReplayMeta | undefined;
-    try {
-      const sidecarPath = filePath.replace(/\.mp3$/, ".json");
-      if (existsSync(sidecarPath)) {
-        const parsed = JSON.parse(readFileSync(sidecarPath, "utf-8")) as ReplayMeta;
-        meta = parsed;
-        if (
-          parsed.sessionId &&
-          existsSync(join(STATE_DIR, `${parsed.sessionId}.json`))
-        ) {
-          ctx = { sessionId: parsed.sessionId };
-        }
-      }
-    } catch {
-      meta = undefined;
-    }
-
+    const { ctx, meta } = loadReplayAttribution(filePath);
     return playFile(filePath, ctx, speedFactor, meta);
   } catch (err: any) {
     log("audio", `Replay error: ${err.message}`);
     return Promise.resolve(1);
   }
+}
+
+/**
+ * Mobile play_replay: play a bare filename from ~/.cursor/tts/replay via
+ * ffplay -ss <offset>. Free (no synthesis). Returns false if the file is
+ * missing or the stream lock is held; otherwise acquires the lock, starts
+ * playback (fire-and-forget), and releases on close.
+ */
+export function startPlayReplay(file: string, offsetSec = 0): boolean {
+  const filePath = join(REPLAY_DIR, file);
+  if (!existsSync(filePath)) return false;
+  if (!acquireLock()) return false;
+
+  const { ctx, meta } = loadReplayAttribution(filePath);
+  const config = loadConfig();
+  const rawSpeed = config.default_speed;
+  const residual = rawSpeed > 1.2 ? +(rawSpeed / 1.2).toFixed(4) : 1.0;
+
+  const ffplayArgs = [
+    "-nodisp",
+    "-autoexit",
+    "-loglevel",
+    "quiet",
+    "-ss",
+    String(offsetSec),
+    "-i",
+    filePath,
+  ];
+  if (residual > 1.0) ffplayArgs.push("-af", `atempo=${residual}`);
+
+  log(
+    "audio",
+    `play_replay: ${file} offset=${offsetSec}s${residual > 1.0 ? ` atempo=${residual}` : ""}`
+  );
+
+  const startedAt = new Date().toISOString();
+  beginSessionPlayback(ctx, meta, startedAt, residual);
+  // Surface the file on now-playing so phone handoff can resume the same track.
+  if (ctx !== "meta" && ctx.sessionId) {
+    stampReplayFileCas(ctx.sessionId, startedAt, file);
+  }
+
+  const child = spawn("ffplay", ffplayArgs, { stdio: "ignore" });
+  currentProcess = child;
+  writePidFiles(child.pid);
+  const stopHealer = startSuspendHealer(child);
+
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    stopHealer();
+    if (currentProcess === child) currentProcess = null;
+    removePidFiles();
+    clearNowPlaying();
+    endSessionPlayback(ctx);
+    releaseLock();
+  };
+  child.on("error", (err) => {
+    log("audio", `play_replay ffplay error: ${err.message}`);
+    settle();
+  });
+  child.on("close", () => settle());
+  return true;
 }
 
 export function playMp3Buffer(
