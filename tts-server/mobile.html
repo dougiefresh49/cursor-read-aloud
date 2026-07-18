@@ -1935,7 +1935,9 @@
       name: agent ? agent.label || agent.name : String(np.sessionId || "").slice(0, 8),
     };
     clearTimeout(handoffTimer);
-    handoffTimer = setTimeout(() => cancelHandoff("Couldn't move playback"), 15000);
+    // Covers the common drain (seconds); a slow-network drain can run longer —
+    // 30s balances that against leaving the user staring at "Moving…".
+    handoffTimer = setTimeout(() => cancelHandoff("Couldn't move playback"), 30000);
     postAction({ type: "stop" }).then((r) => {
       if (!r) cancelHandoff("Couldn't move playback");
     });
@@ -1976,6 +1978,14 @@
         playbackRate: np.playbackRate,
       };
     }
+    // Revalidate: a NEWER Mac playback may have started during the fetch —
+    // starting the old replay locally would double up audio on both devices.
+    const cur = snapshot.nowPlaying;
+    if (cur && !cur.endedAt && cur.startedAt !== np.startedAt && isNowPlayingActive(cur)) {
+      toast("Mac started speaking — handoff cancelled");
+      renderPlayer();
+      return;
+    }
     await playReplayEntry(entry, { gated: false, seekSec: offsetSec });
   }
 
@@ -1989,8 +1999,10 @@
     lastPhonePauseAt = offsetSec;
     renderPlayer();
     postAction({ type: "play_replay", file, offsetSec }).then((r) => {
-      if (r) clearLocalForHandoff();
-      else toast("Mac is busy");
+      // Success: keep the paused local source as recovery until the mac-live
+      // SSE record actually appears (HTTP ok only means the spawn was issued);
+      // the player flips to mac-live on that frame and local stays paused.
+      if (!r) toast("Mac is busy");
     });
   }
 
@@ -2285,7 +2297,10 @@
     } else {
       miCatchup.hidden = true;
     }
-    btnClear.style.display = replayList.length ? "" : "none";
+    // While the inline confirm is open, the Clear button stays hidden — an
+    // SSE re-render must not resurrect it next to Confirm/Cancel.
+    btnClear.style.display =
+      replayList.length && clearConfirm.hidden ? "" : "none";
   }
 
   function renderMessages() {
@@ -2812,15 +2827,30 @@
     setOutput(dev); // no track loaded — just the preference toggle
   });
 
-  // Progress seek (phone-replay only).
-  $("progress").addEventListener("click", (ev) => {
-    if (computePlayerState().kind !== "phone-replay") return;
+  // Progress seek (phone-replay only): tap or drag, via pointer capture.
+  let scrubbing = false;
+  function seekToPointer(ev) {
     const dur = trackDurationSec();
     if (dur <= 0) return;
     const rect = $("progress").getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
     try { audio.currentTime = frac * dur; } catch { /* not seekable yet */ }
     updatePlayerProgress();
+  }
+  $("progress").addEventListener("pointerdown", (ev) => {
+    if (computePlayerState().kind !== "phone-replay") return;
+    scrubbing = true;
+    try { $("progress").setPointerCapture(ev.pointerId); } catch {}
+    seekToPointer(ev);
+  });
+  $("progress").addEventListener("pointermove", (ev) => {
+    if (scrubbing) seekToPointer(ev);
+  });
+  $("progress").addEventListener("pointerup", () => { scrubbing = false; });
+  $("progress").addEventListener("pointercancel", () => { scrubbing = false; });
+  $("progress").addEventListener("click", (ev) => {
+    if (computePlayerState().kind !== "phone-replay") return;
+    seekToPointer(ev);
     checkListenedProgress();
   });
 

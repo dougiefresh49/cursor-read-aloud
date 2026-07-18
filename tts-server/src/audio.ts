@@ -287,6 +287,10 @@ export function releaseLock(): void {
  * Compare-and-set: stamp replayFile into .now-playing.json only if the record
  * still belongs to this playback (sessionId + startedAt). Works for live or
  * endedAt records — never clobbers a newer playback.
+ *
+ * Known limit: read→rename isn't atomic across processes; another writer in
+ * that microsecond window of sync fs calls could be resurrected-over. Accepted
+ * for this single-user tool — a real conditional write would need a mutex.
  */
 function stampReplayFileCas(
   sessionId: string,
@@ -309,8 +313,14 @@ function stampReplayFileCas(
 // exits right after playback settles — it must await this first, or the drain
 // (and the complete replay file) dies with the process.
 let pendingDrain: Promise<void> | null = null;
-export function awaitPendingDrain(): Promise<void> {
-  return pendingDrain ?? Promise.resolve();
+export function awaitPendingDrain(capMs = 95_000): Promise<void> {
+  if (!pendingDrain) return Promise.resolve();
+  // The drain's 90s cap only ticks per received chunk — a fully stalled
+  // stream would never resolve it. Cap the wait so `once` always exits.
+  return Promise.race([
+    pendingDrain,
+    new Promise<void>((r) => setTimeout(r, capMs).unref?.()),
+  ]);
 }
 
 export function stopCurrent(): void {
@@ -677,14 +687,16 @@ export function playStreamBuffer(
         settle(code ?? 0);
         return;
       }
-      // Early stop (stop button / handoff): free the room immediately; a
-      // detached drain keeps filling replayChunks and saves on completion/cap.
+      // Early stop (stop button / handoff): settle now — the caller's finally
+      // releases the lock right after resolve, in the correct order (old state
+      // published first). A detached drain keeps filling replayChunks and
+      // saves on completion/cap. Exit code 130 = stopped, never "success"
+      // (SIGTERM yields code null; ?? 0 would fire the victory line).
       drainDeadline = Date.now() + DRAIN_CAP_MS;
       pendingDrain = new Promise<void>((r) => {
         drain.done = r;
       });
-      releaseLock();
-      settle(code ?? 0);
+      settle(130);
     });
 
     try {
@@ -827,7 +839,11 @@ export function startPlayReplay(file: string, offsetSec = 0): boolean {
     `play_replay: ${file} offset=${offsetSec}s${residual > 1.0 ? ` atempo=${residual}` : ""}`
   );
 
-  const startedAt = new Date().toISOString();
+  // Backdate startedAt by the seek offset (in wall time: file-time ÷ rate) so
+  // progress renders the true position and a later Mac→phone hop resumes there.
+  const startedAt = new Date(
+    Date.now() - (offsetSec * 1000) / residual
+  ).toISOString();
   beginSessionPlayback(ctx, meta, startedAt, residual);
   // Surface the file on now-playing so phone handoff can resume the same track.
   if (ctx !== "meta" && ctx.sessionId) {
