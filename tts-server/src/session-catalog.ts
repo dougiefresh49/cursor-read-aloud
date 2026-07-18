@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { homedir } from "os";
 
 const PROJECTS_DIR = join(homedir(), ".claude", "projects");
 const LIVE_SESSIONS_DIR = join(homedir(), ".claude", "sessions");
+const CHARACTERS_PATH = join(dirname(fileURLToPath(import.meta.url)), "characters.json");
 const MIN_JSONL_BYTES = 1024;
 const MAX_RESUMABLE = 30;
 const CWD_SCAN_LINES = 100;
@@ -157,4 +159,36 @@ export function knownDirs(): string[] {
 
 export function isResumableSession(sessionId: string): boolean {
   return listResumable().some((s) => s.sessionId === sessionId);
+}
+
+/** Character display names for the mobile/desktop spawn picker. */
+export function listPersonas(): string[] {
+  if (!existsSync(CHARACTERS_PATH)) return [];
+  try {
+    const chars = JSON.parse(readFileSync(CHARACTERS_PATH, "utf-8")) as Record<
+      string,
+      { name?: string }
+    >;
+    const names = new Set<string>();
+    for (const entry of Object.values(chars)) {
+      const n = entry?.name?.trim();
+      if (n) names.add(n);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
+/** Payload for GET /picker — dirs + resumable sessions + personas. */
+export function pickerPayload(): {
+  dirs: string[];
+  resumable: ResumableSession[];
+  personas: string[];
+} {
+  return {
+    dirs: knownDirs(),
+    resumable: listResumable(),
+    personas: listPersonas(),
+  };
 }

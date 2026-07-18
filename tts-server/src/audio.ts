@@ -70,14 +70,22 @@ export interface NowPlaying {
   // "ack" = short prompt acknowledgment — the panel keeps it off the stage
   // (no spotlight/card growth); absent/"update" = full treatment.
   kind?: "ack" | "update";
+  // Grant-to-phone: phone plays this exact replay file; Mac speakers stay quiet.
+  output?: "mac" | "phone";
+  replayFile?: string;
+  grantId?: string;
 }
+
+/** Where playStreamBuffer sends synthesized audio. "none" = buffer → replay only. */
+export type StreamSink = "ffplay" | "none";
 
 function writeNowPlaying(
   sessionId: string,
   meta?: ReplayMeta,
   alignment?: AlignmentTuples,
   startedAt?: string,
-  playbackRate = 1.0
+  playbackRate = 1.0,
+  phone?: { replayFile: string; grantId: string }
 ): void {
   const data: NowPlaying = {
     sessionId,
@@ -88,10 +96,40 @@ function writeNowPlaying(
     ...(alignment && alignment.length ? { alignment } : {}),
     ...(meta?.kind ? { kind: meta.kind } : {}),
     ...(playbackRate !== 1.0 ? { playbackRate } : { playbackRate: 1.0 }),
+    ...(phone
+      ? { output: "phone" as const, replayFile: phone.replayFile, grantId: phone.grantId }
+      : {}),
   };
   const tmp = `${NOW_PLAYING_PATH}.tmp.${process.pid}`;
   writeFileSync(tmp, JSON.stringify(data));
   renameSync(tmp, NOW_PLAYING_PATH);
+}
+
+/** Duration estimate for phone-grant timeout / refuse window (ms). */
+export function phoneGrantDurationMs(alignment?: AlignmentTuples): number {
+  if (alignment?.length) {
+    const last = alignment[alignment.length - 1];
+    if (typeof last[1] === "number" && Number.isFinite(last[1]) && last[1] > 0) {
+      return last[1];
+    }
+  }
+  return 60_000;
+}
+
+const PHONE_GRANT_SLACK_MS = 5_000;
+
+/** True while a phone grant's now-playing window has not yet expired. */
+export function isUnexpiredPhoneGrant(): boolean {
+  try {
+    if (!existsSync(NOW_PLAYING_PATH)) return false;
+    const np = JSON.parse(readFileSync(NOW_PLAYING_PATH, "utf-8")) as NowPlaying;
+    if (!np || np.endedAt || np.output !== "phone") return false;
+    const start = Date.parse(np.startedAt);
+    if (!Number.isFinite(start)) return false;
+    return Date.now() < start + phoneGrantDurationMs(np.alignment) + PHONE_GRANT_SLACK_MS;
+  } catch {
+    return false;
+  }
 }
 
 // Playback over: don't delete — stamp endedAt so the panel can keep showing
@@ -356,6 +394,7 @@ function pruneReplayDir(): void {
   } catch {}
 }
 
+/** Returns the replay filename (not full path), or null on failure. */
 function saveReplayFile(
   chunks: Uint8Array[],
   queueFile: string,
@@ -378,11 +417,82 @@ function saveReplayFile(
     }
     pruneReplayDir();
     log("audio", `Saved replay: ${filename} (${(total / 1024).toFixed(1)} KB)`);
-    return filePath;
+    return filename;
   } catch (err: any) {
     log("audio", `Failed to save replay: ${err.message}`);
     return null;
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Buffer synthesis to a replay file; phone plays it. No Mac speakers. */
+async function playStreamToPhone(
+  audioStream: AsyncIterable<Uint8Array>,
+  queueFile: string,
+  ctx: PlaybackContext,
+  replayMeta: ReplayMeta | undefined,
+  getWords: (() => WordTiming[]) | undefined,
+  tempoRate: number
+): Promise<number> {
+  const grantId = basename(queueFile);
+  const captioned = !!getWords && ctx !== "meta";
+  const replayChunks: Uint8Array[] = [];
+
+  try {
+    for await (const chunk of audioStream) {
+      replayChunks.push(chunk);
+    }
+  } catch (err: any) {
+    log("audio", `Phone-sink stream error: ${err.message}`);
+    return 1;
+  }
+
+  if (replayChunks.length === 0) {
+    log("audio", "Phone-sink: empty stream — nothing to save");
+    return 1;
+  }
+
+  const alignment = captioned ? toTuples(getWords!()) : undefined;
+  if (captioned && replayMeta) {
+    replayMeta.alignment = alignment;
+    replayMeta.playbackRate = tempoRate;
+  }
+
+  // Ordering contract: replay file FIRST, then now-playing (SSE race fix).
+  const replayFile = saveReplayFile(replayChunks, queueFile, replayMeta);
+  if (!replayFile) return 1;
+
+  const startedAt = new Date().toISOString();
+  const startedAtMs = Date.parse(startedAt);
+  const sessionId = ctx !== "meta" ? ctx.sessionId : "";
+
+  beginSessionSpeaking(ctx);
+  if (sessionId) {
+    writeNowPlaying(sessionId, replayMeta, alignment, startedAt, tempoRate, {
+      replayFile,
+      grantId,
+    });
+  }
+
+  // Mac audio pipeline is free; phone playback doesn't hold the stream lock.
+  releaseLock();
+
+  const waitMs = Math.max(
+    0,
+    startedAtMs + phoneGrantDurationMs(alignment) + PHONE_GRANT_SLACK_MS - Date.now()
+  );
+  log(
+    "audio",
+    `Phone grant ${grantId}: waiting ${Math.round(waitMs / 1000)}s for playback window`
+  );
+  await sleep(waitMs);
+
+  clearNowPlaying();
+  endSessionPlayback(ctx, grantId);
+  return 0;
 }
 
 export function playStreamBuffer(
@@ -392,13 +502,21 @@ export function playStreamBuffer(
   replayMeta?: ReplayMeta,
   // When provided (timestamps path), poll accumulated word timings and thread
   // them into .now-playing.json (live) + the replay sidecar (persisted).
-  getWords?: () => WordTiming[]
+  getWords?: () => WordTiming[],
+  sink: StreamSink = "ffplay"
 ): Promise<number> {
   return new Promise(async (resolve) => {
     const config = loadConfig();
     const rawSpeed = config.default_speed;
     const elMax = 1.2;
     const tempoRate = rawSpeed > elMax ? +(rawSpeed / elMax).toFixed(4) : 1.0;
+
+    if (sink === "none") {
+      resolve(
+        await playStreamToPhone(audioStream, queueFile, ctx, replayMeta, getWords, tempoRate)
+      );
+      return;
+    }
 
     const ffplayArgs = [
       "-nodisp",

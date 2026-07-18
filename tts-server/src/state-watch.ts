@@ -40,6 +40,10 @@ export interface AgentView {
   supersededCount: number;
   muted: boolean;
   isTeam: boolean;
+  /** First ~120 chars of the grant target (newest-by-basename queue item). */
+  queuedPreview: string | null;
+  /** team_map.json presence only — no tmux probes on snapshot builds. */
+  injectable: boolean;
 }
 
 export interface PanelSnapshot {
@@ -107,6 +111,29 @@ function countQueued(shortSession: string): number {
   }
 }
 
+/**
+ * Preview of the item a grant would speak — same newest-by-basename rule as
+ * grant_floor.sh (~line 165): sort by basename ascending, take the last.
+ */
+function queuedPreviewFor(shortSession: string): string | null {
+  try {
+    if (!existsSync(QUEUE_DIR)) return null;
+    const suffix = `-cc-${shortSession}.json`;
+    const files = readdirSync(QUEUE_DIR)
+      .filter((f) => f.endsWith(suffix))
+      .sort();
+    if (files.length === 0) return null;
+    const newest = files[files.length - 1];
+    const raw = JSON.parse(readFileSync(join(QUEUE_DIR, newest), "utf-8")) as {
+      text?: unknown;
+    };
+    if (typeof raw?.text !== "string" || !raw.text) return null;
+    return raw.text.slice(0, 120);
+  } catch {
+    return null;
+  }
+}
+
 function countSuperseded(shortSession: string, raisedAt: string | null): number {
   if (!raisedAt) return 0;
   try {
@@ -158,6 +185,7 @@ export function buildSnapshot(): AgentView[] {
         const age = Date.now() - new Date(state.updatedAt).getTime();
         if (Number.isFinite(age) && age > 90 * 60 * 1000) shownState = "idle";
       }
+      const inTeam = teamIds.has(sessionId);
       agents.push({
         sessionId,
         name: displayName,
@@ -168,7 +196,9 @@ export function buildSnapshot(): AgentView[] {
         raisedCount: countQueued(shortSession),
         supersededCount: countSuperseded(shortSession, state.raisedAt ?? null),
         muted: muted.has(sessionId),
-        isTeam: teamIds.has(sessionId),
+        isTeam: inTeam,
+        queuedPreview: queuedPreviewFor(shortSession),
+        injectable: inTeam,
       });
     }
   } catch (err: any) {

@@ -207,6 +207,10 @@ async function processQueueFile(
     // and manual enqueues have no session and stay room-level "meta".
     const ctx: PlaybackContext = sessionId ? { sessionId } : "meta";
 
+    // Grant-to-phone: same synthesis stream, sink "none" (buffer → replay only).
+    // CR_OUTPUT is set by dispatchPanelAction → grant_floor.sh → play_node.sh.
+    const sink = process.env.CR_OUTPUT === "phone" ? ("none" as const) : ("ffplay" as const);
+
     // Granted readout: prefer the with-timestamps stream (same cost, free
     // word-level alignment for karaoke captions); fall back to plain streaming
     // if the endpoint/SDK call fails.
@@ -219,7 +223,8 @@ async function processQueueFile(
         filePath,
         ctx,
         replayMeta,
-        timestamped.getWords
+        timestamped.getWords,
+        sink
       );
     } else {
       const stream = await streamTTS(processed, { voiceId });
@@ -229,7 +234,7 @@ async function processQueueFile(
         return;
       }
       log("server", `Playing: ${name} (${processed.length} chars, no captions)`);
-      code = await playStreamBuffer(stream as any, filePath, ctx, replayMeta);
+      code = await playStreamBuffer(stream as any, filePath, ctx, replayMeta, undefined, sink);
     }
     // TTS succeeded and credits are spent — move to played regardless of
     // exit code. A stopped playback shouldn't leave the item re-buyable;
@@ -238,6 +243,7 @@ async function processQueueFile(
       log("server", `Playback exited ${code} for ${name} (stopped?)`);
     } else if (
       process.env.CR_GRANTED === "1" &&
+      process.env.CR_OUTPUT !== "phone" &&
       sessionId &&
       loadConfig().victory_lines
     ) {

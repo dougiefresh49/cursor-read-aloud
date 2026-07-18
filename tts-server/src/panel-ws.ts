@@ -14,6 +14,7 @@ import { runStatusSay } from "./status-say.js";
 import { knownDirs, isResumableSession, listResumable } from "./session-catalog.js";
 import { HID_ACTIONS, captureNextPress, isCaptureReady } from "./hid.js";
 import { buildShortcutsPayload } from "./shortcuts.js";
+import { isUnexpiredPhoneGrant } from "./audio.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHARACTERS_PATH = join(__dirname, "characters.json");
@@ -63,7 +64,7 @@ const MOOD_PRESETS: Record<
 const VALID_SPEEDS = new Set([0.75, 1.0, 1.1, 1.15, 1.2, 1.25, 1.5, 2.0]);
 
 export type PanelMessage =
-  | { type: "grant"; sessionId: string }
+  | { type: "grant"; sessionId: string; output?: "mac" | "phone" }
   | { type: "ptt"; phase: "start" | "stop"; sessionId: string }
   | { type: "focus_terminal"; sessionId: string }
   | { type: "kill_team"; sessionId: string }
@@ -116,11 +117,15 @@ function scriptEnv(): NodeJS.ProcessEnv {
   return { ...process.env, TTS_DIR };
 }
 
-function runScript(name: string, args: string[]): void {
+function runScript(
+  name: string,
+  args: string[],
+  extraEnv?: Record<string, string>
+): void {
   try {
     const child = spawn(join(SCRIPTS_DIR, name), args, {
       stdio: "ignore",
-      env: scriptEnv(),
+      env: { ...scriptEnv(), ...extraEnv },
     });
     child.on("error", (e) => log("panel-ws", `${name} spawn error: ${e.message}`));
   } catch (err: any) {
@@ -138,6 +143,20 @@ function runScriptSync(name: string, args: string[]): boolean {
   } catch (err: any) {
     log("panel-ws", `${name} sync spawn failed: ${err?.message ?? err}`);
     return false;
+  }
+}
+
+/** Sync script run that surfaces the exit status (for reply mapping). */
+function runScriptSyncStatus(name: string, args: string[]): number | null {
+  try {
+    const result = spawnSync(join(SCRIPTS_DIR, name), args, {
+      stdio: "ignore",
+      env: scriptEnv(),
+    });
+    return result.status;
+  } catch (err: any) {
+    log("panel-ws", `${name} sync spawn failed: ${err?.message ?? err}`);
+    return null;
   }
 }
 
@@ -472,10 +491,19 @@ export function validatePanelMessage(raw: unknown): PanelMessage | "bad_message"
 
   switch (msg.type) {
     case "grant":
-      if (keys.length !== 2 || typeof msg.sessionId !== "string" || !msg.sessionId.trim()) {
+      if (typeof msg.sessionId !== "string" || !msg.sessionId.trim()) {
         return "bad_message";
       }
-      return { type: "grant", sessionId: msg.sessionId };
+      if (keys.length === 2) {
+        return { type: "grant", sessionId: msg.sessionId };
+      }
+      if (
+        keys.length === 3 &&
+        (msg.output === "mac" || msg.output === "phone")
+      ) {
+        return { type: "grant", sessionId: msg.sessionId, output: msg.output };
+      }
+      return "bad_message";
     case "ptt":
       if (
         keys.length !== 3 ||
@@ -679,6 +707,56 @@ function spawnTeam(persona: string, dir: string, resumeSessionId?: string): void
   runScript("team.sh", args);
 }
 
+export type SpawnValidateResult = "ok" | "bad_dir" | "bad_persona" | "bad_session";
+
+/** Shared by WS handleMessage and mobile dispatchPanelAction. */
+export function validateAndSpawn(dir: string, persona: string): SpawnValidateResult {
+  if (!isValidDir(dir)) return "bad_dir";
+  if (!isKnownPersona(persona)) return "bad_persona";
+  spawnTeam(persona, dir);
+  return "ok";
+}
+
+/** Shared by WS handleMessage and mobile dispatchPanelAction. */
+export function validateAndResume(
+  sessionId: string,
+  dir: string,
+  persona: string
+): SpawnValidateResult {
+  if (!isValidDir(dir)) return "bad_dir";
+  if (!isKnownPersona(persona)) return "bad_persona";
+  if (!isResumableSession(sessionId)) return "bad_session";
+  spawnTeam(persona, dir, sessionId);
+  return "ok";
+}
+
+export type ReplyStatus = "ok" | "not_in_team" | "failed";
+
+/**
+ * Synchronous mobile reply: inject_prompt.sh --now <sessionId> <text>.
+ * Returns null on validation failure (caller should 400).
+ */
+export function handleReplyAction(raw: unknown): { status: ReplyStatus } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const msg = raw as Record<string, unknown>;
+  if (msg.type !== "reply") return null;
+  if (typeof msg.sessionId !== "string" || !msg.sessionId.trim()) return null;
+  if (typeof msg.text !== "string") return null;
+  const text = msg.text.trim();
+  if (!text || text.length > 4000) return null;
+  if (!sessionInSnapshot(msg.sessionId)) return null;
+
+  // Flag MUST be first — inject_prompt.sh only accepts --now as $1.
+  const status = runScriptSyncStatus("inject_prompt.sh", [
+    "--now",
+    msg.sessionId,
+    text,
+  ]);
+  if (status === 0) return { status: "ok" };
+  if (status === 3) return { status: "not_in_team" };
+  return { status: "failed" };
+}
+
 function focusTerminal(sessionId: string): void {
   const tmux = tmuxForSession(sessionId);
   if (!tmux) return;
@@ -726,12 +804,18 @@ const MOBILE_ACTION_TYPES = new Set([
   "stop",
   "hold_room",
   "status_say",
+  "spawn_session",
+  "resume_session",
 ]);
 
 function dispatch(msg: PanelMessage): void {
   switch (msg.type) {
     case "grant":
-      runScript("grant_floor.sh", [msg.sessionId]);
+      runScript(
+        "grant_floor.sh",
+        [msg.sessionId],
+        msg.output === "phone" ? { CR_OUTPUT: "phone" } : undefined
+      );
       return;
     case "ptt":
       runScript("ptt.sh", [msg.phase, msg.sessionId]);
@@ -779,10 +863,23 @@ export function dispatchPanelAction(raw: unknown): boolean {
   if (msg === "bad_message") return false;
   if (!MOBILE_ACTION_TYPES.has(msg.type)) return false;
 
+  if (msg.type === "spawn_session") {
+    return validateAndSpawn(msg.dir, msg.persona) === "ok";
+  }
+  if (msg.type === "resume_session") {
+    return validateAndResume(msg.sessionId, msg.dir, msg.persona) === "ok";
+  }
+
   if (
     (msg.type === "grant" || msg.type === "status_say") &&
     !sessionInSnapshot(msg.sessionId)
   ) {
+    return false;
+  }
+
+  // One now-playing at a time — refuse while a phone grant's window is open.
+  if (msg.type === "grant" && isUnexpiredPhoneGrant()) {
+    log("panel-ws", "refusing grant — phone grant still active");
     return false;
   }
 
@@ -877,32 +974,20 @@ function handleMessage(ws: WebSocket, raw: unknown): void {
   }
 
   if (msg.type === "spawn_session") {
-    if (!isValidDir(msg.dir)) {
-      sendError(ws, "bad_dir");
+    const result = validateAndSpawn(msg.dir, msg.persona);
+    if (result !== "ok") {
+      sendError(ws, result);
       return;
     }
-    if (!isKnownPersona(msg.persona)) {
-      sendError(ws, "bad_persona");
-      return;
-    }
-    spawnTeam(msg.persona, msg.dir);
     return;
   }
 
   if (msg.type === "resume_session") {
-    if (!isValidDir(msg.dir)) {
-      sendError(ws, "bad_dir");
+    const result = validateAndResume(msg.sessionId, msg.dir, msg.persona);
+    if (result !== "ok") {
+      sendError(ws, result, msg.sessionId);
       return;
     }
-    if (!isKnownPersona(msg.persona)) {
-      sendError(ws, "bad_persona");
-      return;
-    }
-    if (!isResumableSession(msg.sessionId)) {
-      sendError(ws, "bad_session", msg.sessionId);
-      return;
-    }
-    spawnTeam(msg.persona, msg.dir, msg.sessionId);
     return;
   }
 
@@ -950,6 +1035,12 @@ function handleMessage(ws: WebSocket, raw: unknown): void {
       sendError(ws, "stale_session", msg.sessionId);
       return;
     }
+  }
+
+  if (msg.type === "grant" && isUnexpiredPhoneGrant()) {
+    log("panel-ws", "refusing WS grant — phone grant still active");
+    sendError(ws, "bad_message");
+    return;
   }
 
   if (msg.type === "focus_terminal" || msg.type === "kill_team") {

@@ -19,7 +19,8 @@ import { basename, dirname, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 import { loadConfig, TTS_DIR, SESSION_VOICES_PATH } from "./config.js";
 import { buildPanelSnapshot, subscribe } from "./state-watch.js";
-import { dispatchPanelAction } from "./panel-ws.js";
+import { dispatchPanelAction, handleReplyAction } from "./panel-ws.js";
+import { pickerPayload } from "./session-catalog.js";
 import { log } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -267,6 +268,11 @@ async function handleRequest(
     return;
   }
 
+  if (method === "GET" && path === "/picker") {
+    sendJson(res, 200, pickerPayload());
+    return;
+  }
+
   if (method === "GET" && path === "/events") {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -372,6 +378,21 @@ async function handleRequest(
       body = raw ? JSON.parse(raw) : null;
     } catch {
       sendJson(res, 400, { ok: false });
+      return;
+    }
+    // Reply needs a real exit-code result — dedicated sync path (not fire-and-forget).
+    if (
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      (body as { type?: unknown }).type === "reply"
+    ) {
+      const result = handleReplyAction(body);
+      if (!result) {
+        sendJson(res, 400, { ok: false });
+        return;
+      }
+      sendJson(res, 200, result);
       return;
     }
     if (!dispatchPanelAction(body)) {
