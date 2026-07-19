@@ -209,6 +209,122 @@ function listReplays(): ReplayListEntry[] {
   return entries;
 }
 
+/** Validate a replay-audio path segment; returns the bare filename or null. */
+function safeReplayName(raw: string): string | null {
+  const name = basename(raw);
+  if (
+    !name.endsWith(".mp3") ||
+    name !== raw ||
+    name.includes("..") ||
+    name.includes("/") ||
+    name.includes("\\")
+  ) {
+    return null;
+  }
+  return name;
+}
+
+/** Complete replay file: Range-capable serving (iOS needs 206 + lengths to
+ *  start promptly and to scrub). */
+function serveReplayAudio(
+  req: IncomingMessage,
+  res: ServerResponse,
+  filePath: string
+): void {
+  const size = statSync(filePath).size;
+  const range = req.headers.range;
+  const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+  if (m && (m[1] || m[2])) {
+    let start = m[1] ? parseInt(m[1], 10) : NaN;
+    let end = m[2] ? parseInt(m[2], 10) : size - 1;
+    if (!m[1]) {
+      // suffix range: last N bytes
+      start = Math.max(0, size - parseInt(m[2], 10));
+      end = size - 1;
+    }
+    end = Math.min(end, size - 1);
+    if (!Number.isFinite(start) || start < 0 || start > end || start >= size) {
+      res.writeHead(416, { "Content-Range": `bytes */${size}` });
+      res.end();
+      return;
+    }
+    res.writeHead(206, {
+      "Content-Type": "audio/mpeg",
+      "Accept-Ranges": "bytes",
+      "Content-Range": `bytes ${start}-${end}/${size}`,
+      "Content-Length": end - start + 1,
+      "Cache-Control": "no-cache",
+    });
+    createReadStream(filePath, { start, end }).pipe(res);
+    return;
+  }
+  res.writeHead(200, {
+    "Content-Type": "audio/mpeg",
+    "Accept-Ranges": "bytes",
+    "Content-Length": size,
+    "Cache-Control": "no-cache",
+  });
+  createReadStream(filePath).pipe(res);
+}
+
+const LIVE_POLL_MS = 150;
+const LIVE_MAX_MS = 10 * 60_000; // safety cap: never tail longer than 10 min
+
+/** Chunked live tail of a growing .part file until it finalizes (rename to
+ *  .mp3) or the client disconnects. No Content-Length — radio-stream model. */
+async function serveLiveAudio(
+  req: IncomingMessage,
+  res: ServerResponse,
+  filePath: string,
+  partPath: string,
+  from: number
+): Promise<void> {
+  res.writeHead(200, {
+    "Content-Type": "audio/mpeg",
+    "Cache-Control": "no-cache",
+  });
+  let offset = from;
+  let closed = false;
+  const onGone = () => { closed = true; };
+  req.on("close", onGone);
+  res.on("close", onGone);
+
+  const currentSize = (p: string): number => {
+    try { return statSync(p).size; } catch { return -1; }
+  };
+  const pump = (p: string, end: number): Promise<void> =>
+    new Promise((done) => {
+      const rs = createReadStream(p, { start: offset, end: end - 1 });
+      rs.on("data", (c: string | Buffer) => {
+        offset += c.length;
+        if (!res.write(c)) {
+          rs.pause();
+          res.once("drain", () => rs.resume());
+        }
+      });
+      rs.on("end", () => done());
+      rs.on("error", () => done());
+    });
+
+  const deadline = Date.now() + LIVE_MAX_MS;
+  while (!closed && Date.now() < deadline) {
+    const partSize = currentSize(partPath);
+    if (partSize > offset) {
+      await pump(partPath, partSize);
+      continue;
+    }
+    if (partSize < 0) {
+      // .part gone: finalized (drain the remainder from the final file) or
+      // aborted (final missing) — either way this stream is over.
+      const finalSize = currentSize(filePath);
+      if (finalSize > offset) await pump(filePath, finalSize);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, LIVE_POLL_MS));
+  }
+  try { res.end(); } catch { /* client gone */ }
+}
+
 function contentTypeFor(path: string): string {
   if (path.endsWith(".png")) return "image/png";
   if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
@@ -323,14 +439,8 @@ async function handleRequest(
   }
 
   if (method === "GET" && path.startsWith("/replay-audio/")) {
-    const name = basename(path.slice("/replay-audio/".length));
-    if (
-      !name.endsWith(".mp3") ||
-      name !== path.slice("/replay-audio/".length) ||
-      name.includes("..") ||
-      name.includes("/") ||
-      name.includes("\\")
-    ) {
+    const name = safeReplayName(path.slice("/replay-audio/".length));
+    if (!name) {
       res.writeHead(404);
       res.end();
       return;
@@ -341,11 +451,31 @@ async function handleRequest(
       res.end();
       return;
     }
-    res.writeHead(200, {
-      "Content-Type": "audio/mpeg",
-      "Cache-Control": "no-cache",
-    });
-    createReadStream(filePath).pipe(res);
+    serveReplayAudio(req, res, filePath);
+    return;
+  }
+
+  // Live tail of a still-synthesizing replay (.mp3.part): send what's on disk,
+  // then follow the file until it finalizes. ?from=<bytes> resumes mid-stream.
+  if (method === "GET" && path.startsWith("/live-audio/")) {
+    const name = safeReplayName(path.slice("/live-audio/".length));
+    if (!name) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    const filePath = join(replayDir(), name);
+    const partPath = `${filePath}.part`;
+    if (!existsSync(partPath) && !existsSync(filePath)) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    const fromRaw = Number(url.searchParams.get("from") ?? 0);
+    const from = Number.isFinite(fromRaw) && fromRaw > 0 ? Math.floor(fromRaw) : 0;
+    // Part already finalized: same contract (bytes from `from` to EOF, then
+    // end) — the tail loop drains the final file and closes immediately.
+    await serveLiveAudio(req, res, filePath, partPath, from);
     return;
   }
 

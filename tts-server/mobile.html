@@ -702,6 +702,13 @@
     .player-controls button:disabled { color: var(--muted); opacity: 0.4; }
     /* display:block kills the inline-baseline drop that made icons sit low */
     .player-controls button .icon { width: 26px; height: 26px; display: block; }
+    /* Speed cycle button: text label in the old restart slot */
+    .player-controls .speed-label {
+      font-size: 15px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
     /* Optical centering: the play triangle reads left-heavy in a circle */
     .player-controls use[href="#i-play"], #mini-pp use[href="#i-play"] { transform: translateX(1.5px); }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -1015,7 +1022,7 @@
       <span class="time end" id="time-total">0:00</span>
     </div>
     <div class="player-controls">
-      <button type="button" id="btn-restart" title="Restart" aria-label="Restart"><svg class="icon"><use href="#i-rotate-ccw"/></svg></button>
+      <button type="button" id="btn-speed" title="Playback speed" aria-label="Playback speed"><span class="speed-label">1×</span></button>
       <button type="button" id="btn-prev" title="Previous (newer)" aria-label="Previous"><svg class="icon"><use href="#i-skip-back"/></svg></button>
       <button type="button" id="btn-pp" title="Play/Pause" aria-label="Play or pause"><svg class="icon filled"><use href="#i-play"/></svg></button>
       <button type="button" id="btn-next" title="Next (older)" aria-label="Next"><svg class="icon"><use href="#i-skip-forward"/></svg></button>
@@ -1086,7 +1093,7 @@
   const expKaraokeEl = $("exp-karaoke");
   const expStatus = $("exp-status");
   const expTabs = $("exp-tabs");
-  const btnRestart = $("btn-restart");
+  const btnSpeed = $("btn-speed");
   const headerDevice = $("header-device");
   const miCatchup = $("mi-catchup");
   const clearConfirm = $("clear-confirm");
@@ -1095,6 +1102,7 @@
   const CLEARED_KEY = "mobile_cleared_files";
   const HIDDEN_DEVS_KEY = "mobile_hidden_dev_names_v1";
   const OUTPUT_KEY = "mobile_output_device";
+  const SPEED_KEY = "mobile_speed_mult";
   const INITIAL_HIDDEN_DEV_NAMES = ["job-search-2026"];
 
   let snapshot = { agents: [], nowPlaying: null, roomHeld: false, paused: false };
@@ -1127,6 +1135,25 @@
   let phoneLoading = false;    // replay file loading into <audio>
   let phoneLoadGen = 0;        // generation counter — stale play() rejections
   const grantPending = new Map(); // sessionId → timeout id ("Working…" state)
+
+  // Live grant streaming (v2.3): while synthesis is in flight the phone plays
+  // /live-audio/ (chunked radio-stream tail of the growing replay file). The
+  // stream ends at the edge of what's on disk — reconnect from a byte offset
+  // instead of treating it as track end.
+  let liveMode = false;        // <audio> src is /live-audio/
+  let liveComplete = false;    // server re-stamped synthesisComplete:true
+  let liveBaseSec = 0;         // seconds consumed by previous live connections
+  let liveNp = null;           // latest nowPlaying frame for the live file
+  let liveRetries = 0;         // consecutive edge-reconnects without progress
+  const LIVE_BYTES_PER_SEC = 16000; // mp3_44100_128 is CBR 128kbps
+
+  // Playback-speed multiplier (v2.3): applied on top of the entry's baked
+  // residual rate; phone static playback only (live streams can't sustain >1×).
+  const SPEED_STEPS = [1, 1.25, 1.5, 1.75, 2];
+  let speedMult = (() => {
+    const v = parseFloat(localStorage.getItem(SPEED_KEY) || "1");
+    return SPEED_STEPS.includes(v) ? v : 1;
+  })();
 
   // Inline SVG icon markup for template strings.
   function iconHtml(id, extra) {
@@ -1452,6 +1479,9 @@
 
   /* --------------- phone track duration --------------- */
   function trackDurationSec() {
+    // Live stream: element duration is meaningless (chunked, offset-relative) —
+    // estimate from the nowPlaying frame like the Mac plane does.
+    if (liveMode && liveNp) return macDurationMs(liveNp) / 1000;
     const d = audio.duration;
     if (Number.isFinite(d) && d > 0) return d;
     const alignment = phoneMeta?.alignment;
@@ -1706,10 +1736,12 @@
       seg.classList.toggle("source-mac", active && dev === "mac");
     }
 
-    // Transport visibility: prev/next are phone-only; restart works for both
-    // planes (mac restart = play_replay at 0); stop is mac-owned; play/pause
-    // always shown. Mac progress is seekable once replayFile exists.
-    btnRestart.hidden = !phone && !macl;
+    // Transport visibility: prev/next and speed are phone-only (Mac rate is
+    // baked/atempo); stop is mac-owned; play/pause always shown. Mac progress
+    // is seekable once replayFile exists. Speed is dimmed during live streams.
+    btnSpeed.hidden = !phone;
+    btnSpeed.disabled = liveMode;
+    updateSpeedLabel();
     btnPrev.hidden = !phone;
     btnNext.hidden = !phone;
     btnStop.hidden = !macl;
@@ -1756,7 +1788,8 @@
       cur = Math.min(dur, ps.offsetSec);
     } else if (ps.kind === "phone-replay") {
       dur = trackDurationSec();
-      cur = audio.currentTime || 0;
+      cur = (liveMode ? liveBaseSec : 0) + (audio.currentTime || 0);
+      if (dur > 0) cur = Math.min(dur, cur);
     }
     const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
     progressFill.style.width = `${pct}%`;
@@ -1777,7 +1810,7 @@
       expKaraoke.innerHTML = karaokeFromAlignment(np.text, np.alignment, ps.offsetSec * 1000);
     } else if (ps.kind === "phone-replay") {
       const e = ps.entry;
-      const elapsed = (audio.currentTime || 0) * 1000;
+      const elapsed = ((liveMode ? liveBaseSec : 0) + (audio.currentTime || 0)) * 1000;
       const text = e.spokenText || e.textPreview || "";
       expKaraoke.innerHTML = karaokeFromAlignment(text, e.alignment, elapsed);
     } else {
@@ -1918,9 +1951,16 @@
         renderPlayer();
         return;
       }
-      // Strict toggle — NEVER reload the source (§C4). Resuming a paused track
-      // continues from currentTime; only an already-ended track rewinds to 0.
+      // Strict toggle — NEVER reload the source (§C4; live-mode reconnects are
+      // the one exception). Resuming a paused track continues from currentTime;
+      // only an already-ended track rewinds to 0.
       if (audio.paused) {
+        if (liveMode && liveComplete) {
+          // Paused mid-live and synthesis finished meanwhile — resume on the
+          // seekable static file at the same overall position.
+          switchLiveToStatic(liveBaseSec + (audio.currentTime || 0));
+          return;
+        }
         if (audio.ended) {
           try { audio.currentTime = 0; } catch { /* not seekable */ }
         }
@@ -1935,18 +1975,28 @@
     playLatest();
   }
 
-  // Restart button (§C4): the ONLY explicit rewind that isn't track-end.
-  async function restartTrack() {
-    const k = computePlayerState().kind;
-    if (k === "mac-live" || k === "mac-paused") {
-      macSeek(0);
-      return;
-    }
-    if (k !== "phone-replay") return;
-    phonePendingTap = false;
-    try { audio.currentTime = 0; } catch { /* not seekable */ }
-    try { await audio.play(); } catch { toast("Tap again to play"); }
-    renderPlayer();
+  // Speed cycle (v2.3, replaces the restart button — scrub-to-0 covers it).
+  function fmtSpeed(v) {
+    return `${String(v).replace(/^0/, "")}×`;
+  }
+  function updateSpeedLabel() {
+    const label = btnSpeed.querySelector(".speed-label");
+    if (label) label.textContent = fmtSpeed(speedMult);
+  }
+  function applySpeed() {
+    if (liveMode) return; // live streams can't sustain >1× (edge starvation)
+    const base =
+      phoneMeta?.playbackRate && phoneMeta.playbackRate > 0
+        ? phoneMeta.playbackRate
+        : 1;
+    audio.playbackRate = base * speedMult;
+  }
+  function cycleSpeed() {
+    const i = SPEED_STEPS.indexOf(speedMult);
+    speedMult = SPEED_STEPS[(i + 1) % SPEED_STEPS.length];
+    try { localStorage.setItem(SPEED_KEY, String(speedMult)); } catch {}
+    updateSpeedLabel();
+    applySpeed();
   }
 
   async function transportStop() {
@@ -1998,7 +2048,7 @@
     return !audio.src || audio.paused || audio.ended;
   }
 
-  async function playReplayEntry(entry, { fromCatchUp, gated = true, seekSec = 0 } = {}) {
+  async function playReplayEntry(entry, { fromCatchUp, gated = true, seekSec = 0, live = false } = {}) {
     if (!entry?.file) {
       toast("No replay");
       return;
@@ -2032,9 +2082,19 @@
     newPill.classList.remove("on");
     pendingSeekSec = Number.isFinite(seekSec) && seekSec > 0 ? seekSec : 0;
     audio.muted = false;
-    audio.src = `/replay-audio/${encodeURIComponent(entry.file)}`;
-    audio.playbackRate =
-      entry.playbackRate && entry.playbackRate > 0 ? entry.playbackRate : 1;
+    liveMode = !!live;
+    liveComplete = false;
+    liveBaseSec = 0;
+    liveRetries = 0;
+    if (live) {
+      // Growing file: chunked live tail. No rate multiplier (it would starve
+      // at the edge) — speed re-applies when the track goes static.
+      audio.src = `/live-audio/${encodeURIComponent(entry.file)}?v=${Date.now()}`;
+      audio.playbackRate = 1;
+    } else {
+      audio.src = `/replay-audio/${encodeURIComponent(entry.file)}`;
+      applySpeed();
+    }
     renderPlayer();
     renderMessages();
     updateBars();
@@ -2107,24 +2167,87 @@
     const file = np.replayFile;
     if (!file) return;
     if (phoneMeta?.file === file && !isPhoneIdle()) return; // already on it
-    // Try to enrich from the replay list (alignment, name), else synthesize.
+    const live = np.synthesisComplete === false;
+    // Try to enrich from the replay list (alignment, name) — pointless while
+    // live (the .mp3 isn't on disk yet), so synthesize from nowPlaying.
     let entry = null;
-    try {
-      await refreshReplayList();
-      entry = replayList.find((e) => e.file === file);
-    } catch { /* fall through */ }
+    if (!live) {
+      try {
+        await refreshReplayList();
+        entry = replayList.find((e) => e.file === file);
+      } catch { /* fall through */ }
+    }
     if (!entry) {
       entry = {
         file,
         sessionId: np.sessionId,
         alignment: np.alignment,
         spokenText: np.text,
+        rawText: np.rawText,
         textPreview: np.text,
         playbackRate: np.playbackRate,
       };
     }
+    if (live) liveNp = np;
     // Not gated by mac-live: this IS the routed phone output, not a Mac plane.
-    await playReplayEntry(entry, { gated: false });
+    await playReplayEntry(entry, { gated: false, live });
+  }
+
+  /* --------------- live-stream helpers (v2.3) --------------- */
+  // The finalize SSE frame doesn't change nowPlayingKey — check every frame.
+  function checkLiveFinalize(np) {
+    if (!liveMode || !phoneMeta || !np || np.replayFile !== phoneMeta.file) return;
+    liveNp = np;
+    if (np.synthesisComplete && !liveComplete) {
+      liveComplete = true;
+      if (np.alignment) phoneMeta.alignment = np.alignment;
+      if (np.playbackRate) phoneMeta.playbackRate = np.playbackRate;
+      refreshReplayList(); // the finalized .mp3 is in the catalog now
+      renderPlayer();
+    }
+  }
+
+  // Swap the live stream for the seekable static file at a known position.
+  async function switchLiveToStatic(seekSec) {
+    if (!phoneMeta?.file) return;
+    liveMode = false;
+    liveBaseSec = 0;
+    pendingSeekSec = Math.max(0, seekSec);
+    audio.src = `/replay-audio/${encodeURIComponent(phoneMeta.file)}`;
+    applySpeed();
+    try { await audio.play(); } catch {
+      phonePendingTap = true;
+      toast("Tap to play");
+    }
+    renderPlayer();
+  }
+
+  // The live stream ended/errored at the growing edge but synthesis isn't
+  // done — reconnect from where we left off (byte offset ≈ seconds × CBR rate).
+  async function reconnectLive() {
+    if (!phoneMeta?.file) return;
+    liveBaseSec += audio.currentTime || 0;
+    if (liveComplete) {
+      await switchLiveToStatic(liveBaseSec);
+      return;
+    }
+    if (liveRetries++ >= 5) {
+      // No forward progress across several reconnects — stop looping; the
+      // finalize frame (or a manual tap) recovers playback.
+      phoneLoading = false;
+      renderPlayer();
+      return;
+    }
+    const fromBytes = Math.floor(liveBaseSec * LIVE_BYTES_PER_SEC);
+    // Server contract: bytes from `from` to EOF (tailing the .part while it
+    // grows, or draining the finalized file) — position is always ours.
+    audio.src = `/live-audio/${encodeURIComponent(phoneMeta.file)}?from=${fromBytes}&v=${Date.now()}`;
+    audio.playbackRate = 1;
+    try { await audio.play(); } catch {
+      phonePendingTap = true;
+      toast("Tap to keep playing");
+      renderPlayer();
+    }
   }
 
   function clearPhonePlayback() {
@@ -2135,6 +2258,11 @@
     currentIndex = -1;
     phonePendingTap = false;
     lastPhonePauseAt = 0;
+    liveMode = false;
+    liveComplete = false;
+    liveBaseSec = 0;
+    liveNp = null;
+    liveRetries = 0;
     stopCatchUp();
     closeExpanded();
     renderPlayer();
@@ -2646,6 +2774,16 @@
     await playReplayEntry(next, { fromCatchUp: true });
   }
   async function onTrackEnded() {
+    if (liveMode) {
+      // Live stream played to its real end — leave the (unseekable) chunked
+      // src behind so restart/scrub/speed work on the finalized file.
+      liveMode = false;
+      liveBaseSec = 0;
+      if (phoneMeta?.file) {
+        audio.src = `/replay-audio/${encodeURIComponent(phoneMeta.file)}`;
+        applySpeed();
+      }
+    }
     if (phoneMeta?.file) markListened(phoneMeta.file);
     if (catchUpMode) catchUpQueue = catchUpQueue.filter((e) => !isReplayEntryHidden(e));
     if (catchUpMode && catchUpQueue.length && !isMacLive()) {
@@ -3066,7 +3204,7 @@
       playAtIndex(currentIndex + 1);
     }
   });
-  btnRestart.addEventListener("click", () => restartTrack());
+  btnSpeed.addEventListener("click", () => cycleSpeed());
   $("exp-collapse").addEventListener("click", () => closeExpanded());
 
   // Transcript | Message tab toggle (§C3).
@@ -3126,6 +3264,17 @@
     if (dur <= 0) return;
     const rect = $("progress").getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+    if (liveMode) {
+      // Live stream: only what this connection has buffered is seekable —
+      // clamp backward seeks to it, never past the growing edge.
+      const rel = frac * dur - liveBaseSec;
+      const buf = audio.buffered;
+      const bufEnd = buf.length ? buf.end(buf.length - 1) : 0;
+      const clamped = Math.min(Math.max(rel, 0), Math.max(0, bufEnd - 0.3));
+      try { audio.currentTime = clamped; } catch { /* not seekable yet */ }
+      updatePlayerProgress();
+      return;
+    }
     try { audio.currentTime = frac * dur; } catch { /* not seekable yet */ }
     updatePlayerProgress();
   }
@@ -3212,18 +3361,34 @@
   });
 
   // Audio element events.
-  audio.addEventListener("ended", () => onTrackEnded());
+  audio.addEventListener("ended", () => {
+    // Live stream hitting the growing edge is NOT track end — reconnect and
+    // keep going until the server says synthesis is complete.
+    if (liveMode && !liveComplete) {
+      reconnectLive();
+      return;
+    }
+    onTrackEnded();
+  });
   audio.addEventListener("playing", () => {
     phoneLoading = false;
     renderPlayer();
   });
   audio.addEventListener("error", () => {
+    if (liveMode && !liveComplete && phoneMeta?.file) {
+      setTimeout(() => {
+        if (liveMode && !liveComplete) reconnectLive();
+      }, 500);
+      return;
+    }
     phoneLoading = false;
     renderPlayer();
   });
   audio.addEventListener("play", () => renderPlayer());
   audio.addEventListener("pause", () => renderPlayer());
   audio.addEventListener("timeupdate", () => {
+    // Forward progress on a live connection means reconnects are working.
+    if (liveMode && audio.currentTime > 1) liveRetries = 0;
     updatePlayerProgress();
     checkListenedProgress();
   });
@@ -3295,6 +3460,9 @@
         // Live handoff (§A3): fires on the endedAt+replayFile frame, which
         // does NOT change nowPlayingKey — check it every frame.
         if (handoffAwait) checkMacToPhoneHandoff();
+        // Live grant finalize (v2.3): same deal — the synthesisComplete
+        // re-stamp keeps the key unchanged.
+        checkLiveFinalize(next.nowPlaying);
         if (nextKey && nextKey !== prevKey) {
           lastNowPlayingKey = nextKey;
           refreshReplayList({ detectNew: true });

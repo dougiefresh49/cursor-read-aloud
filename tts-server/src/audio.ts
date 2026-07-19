@@ -1,5 +1,6 @@
 import { spawn, spawnSync, ChildProcess } from "child_process";
 import {
+  createWriteStream,
   existsSync,
   readFileSync,
   writeFileSync,
@@ -7,6 +8,8 @@ import {
   mkdirSync,
   readdirSync,
   renameSync,
+  statSync,
+  type WriteStream,
 } from "fs";
 import {
   STREAM_PID_FILE,
@@ -74,6 +77,9 @@ export interface NowPlaying {
   output?: "mac" | "phone";
   replayFile?: string;
   grantId?: string;
+  // false while the replay file is still growing (phone streams it live via
+  // /live-audio/); flips true on the finalize re-stamp. Absent = complete.
+  synthesisComplete?: boolean;
 }
 
 /** Where playStreamBuffer sends synthesized audio. "none" = buffer → replay only. */
@@ -85,7 +91,7 @@ function writeNowPlaying(
   alignment?: AlignmentTuples,
   startedAt?: string,
   playbackRate = 1.0,
-  phone?: { replayFile: string; grantId: string }
+  phone?: { replayFile: string; grantId: string; synthesisComplete?: boolean }
 ): void {
   const data: NowPlaying = {
     sessionId,
@@ -97,7 +103,14 @@ function writeNowPlaying(
     ...(meta?.kind ? { kind: meta.kind } : {}),
     ...(playbackRate !== 1.0 ? { playbackRate } : { playbackRate: 1.0 }),
     ...(phone
-      ? { output: "phone" as const, replayFile: phone.replayFile, grantId: phone.grantId }
+      ? {
+          output: "phone" as const,
+          replayFile: phone.replayFile,
+          grantId: phone.grantId,
+          ...(phone.synthesisComplete !== undefined
+            ? { synthesisComplete: phone.synthesisComplete }
+            : {}),
+        }
       : {}),
   };
   const tmp = `${NOW_PLAYING_PATH}.tmp.${process.pid}`;
@@ -124,6 +137,9 @@ export function activePhoneGrantId(): string | null {
     if (!existsSync(NOW_PLAYING_PATH)) return null;
     const np = JSON.parse(readFileSync(NOW_PLAYING_PATH, "utf-8")) as NowPlaying;
     if (!np || np.endedAt || np.output !== "phone" || !np.grantId) return null;
+    // Synthesis still writing the replay file — the window can't expire yet
+    // (the 60s no-alignment default would cut long messages off mid-stream).
+    if (np.synthesisComplete === false) return np.grantId;
     const start = Date.parse(np.startedAt);
     if (!Number.isFinite(start)) return null;
     const open =
@@ -438,6 +454,14 @@ function pruneReplayDir(): void {
       try { unlinkSync(join(REPLAY_DIR, oldest)); } catch {}
       try { unlinkSync(join(REPLAY_DIR, oldest.replace(".mp3", ".json"))); } catch {}
     }
+    // Crash leftovers: a .part older than an hour will never finalize.
+    for (const f of readdirSync(REPLAY_DIR)) {
+      if (!f.endsWith(".part")) continue;
+      const p = join(REPLAY_DIR, f);
+      try {
+        if (Date.now() - statSync(p).mtimeMs > 3_600_000) unlinkSync(p);
+      } catch {}
+    }
   } catch {}
 }
 
@@ -475,7 +499,76 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Buffer synthesis to a replay file; phone plays it. No Mac speakers. */
+// Progressive replay writer: chunks land in <name>.mp3.part as they stream in
+// (the /live-audio/ endpoint tails it); finalize renames to .mp3 + writes the
+// full sidecar. Pruning and /replay-list ignore .part files.
+interface ReplayWriter {
+  filename: string; // final .mp3 name (what gets stamped/served)
+  write(chunk: Uint8Array): Promise<void>;
+  finalize(meta?: ReplayMeta): Promise<string | null>;
+  abort(): void;
+}
+
+function openReplayWriter(queueFile: string, meta?: ReplayMeta): ReplayWriter | null {
+  try {
+    mkdirSync(REPLAY_DIR, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const label = queueFile.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+    const filename = `${ts}_${label}.mp3`;
+    const filePath = join(REPLAY_DIR, filename);
+    const partPath = `${filePath}.part`;
+    const stream: WriteStream = createWriteStream(partPath);
+    // Initial sidecar: everything known pre-synthesis, so a client that reads
+    // it mid-stream never sees an empty entry. Finalize overwrites with
+    // alignment/rate added.
+    if (meta) {
+      writeFileSync(
+        join(REPLAY_DIR, filename.replace(".mp3", ".json")),
+        JSON.stringify(meta, null, 2)
+      );
+    }
+    let total = 0;
+    return {
+      filename,
+      write(chunk: Uint8Array): Promise<void> {
+        total += chunk.length;
+        return new Promise((res, rej) => {
+          stream.write(Buffer.from(chunk), (err) => (err ? rej(err) : res()));
+        });
+      },
+      finalize(finalMeta?: ReplayMeta): Promise<string | null> {
+        return new Promise((res) => {
+          stream.end(() => {
+            try {
+              renameSync(partPath, filePath);
+              if (finalMeta) {
+                const tmp = join(REPLAY_DIR, `.${filename}.json.tmp`);
+                writeFileSync(tmp, JSON.stringify(finalMeta, null, 2));
+                renameSync(tmp, join(REPLAY_DIR, filename.replace(".mp3", ".json")));
+              }
+              pruneReplayDir();
+              log("audio", `Saved replay: ${filename} (${(total / 1024).toFixed(1)} KB)`);
+              res(filename);
+            } catch (err: any) {
+              log("audio", `Failed to finalize replay: ${err.message}`);
+              res(null);
+            }
+          });
+        });
+      },
+      abort(): void {
+        try { stream.destroy(); } catch {}
+        try { unlinkSync(partPath); } catch {}
+        try { unlinkSync(join(REPLAY_DIR, filename.replace(".mp3", ".json"))); } catch {}
+      },
+    };
+  } catch (err: any) {
+    log("audio", `Failed to open replay writer: ${err.message}`);
+    return null;
+  }
+}
+
+/** Stream synthesis into a replay file; phone plays it live. No Mac speakers. */
 async function playStreamToPhone(
   audioStream: AsyncIterable<Uint8Array>,
   queueFile: string,
@@ -487,43 +580,66 @@ async function playStreamToPhone(
 ): Promise<number> {
   const grantId = basename(queueFile);
   const captioned = !!getWords && ctx !== "meta";
-  const replayChunks: Uint8Array[] = [];
+  const sessionId = ctx !== "meta" ? ctx.sessionId : "";
 
+  if (replayMeta) replayMeta.playbackRate = tempoRate;
+  const writer = openReplayWriter(queueFile, replayMeta);
+  if (!writer) return 1;
+
+  // Stamp on FIRST chunk (file exists on disk from that moment) — the phone
+  // starts streaming /live-audio/ within ~1s instead of waiting for the full
+  // synthesis. The queue item is NOT retired yet (see onPersisted below).
+  let startedAt = "";
+  let total = 0;
   try {
     for await (const chunk of audioStream) {
-      replayChunks.push(chunk);
+      await writer.write(chunk);
+      total += chunk.length;
+      if (!startedAt) {
+        startedAt = new Date().toISOString();
+        beginSessionSpeaking(ctx);
+        if (sessionId) {
+          writeNowPlaying(sessionId, replayMeta, undefined, startedAt, tempoRate, {
+            replayFile: writer.filename,
+            grantId,
+            synthesisComplete: false,
+          });
+        }
+      }
     }
   } catch (err: any) {
     log("audio", `Phone-sink stream error: ${err.message}`);
+    writer.abort();
+    if (startedAt && activePhoneGrantId() === grantId) clearNowPlaying();
+    endSessionPlayback(ctx, grantId);
     return 1;
   }
 
-  if (replayChunks.length === 0) {
+  if (total === 0) {
     log("audio", "Phone-sink: empty stream — nothing to save");
+    writer.abort();
     return 1;
   }
 
   const alignment = captioned ? toTuples(getWords!()) : undefined;
-  if (replayMeta) {
-    // Rate always persisted — the phone plays this sidecar and must not lose
-    // the residual tempo when the timestamps path fell back (no alignment).
-    replayMeta.playbackRate = tempoRate;
-    if (captioned) replayMeta.alignment = alignment;
+  if (replayMeta && captioned) replayMeta.alignment = alignment;
+
+  const replayFile = await writer.finalize(replayMeta);
+  if (!replayFile) {
+    if (startedAt && activePhoneGrantId() === grantId) clearNowPlaying();
+    endSessionPlayback(ctx, grantId);
+    return 1;
   }
 
-  // Ordering contract: replay file FIRST, then now-playing (SSE race fix).
-  const replayFile = saveReplayFile(replayChunks, queueFile, replayMeta);
-  if (!replayFile) return 1;
-
-  const startedAt = new Date().toISOString();
   const startedAtMs = Date.parse(startedAt);
-  const sessionId = ctx !== "meta" ? ctx.sessionId : "";
 
-  beginSessionSpeaking(ctx);
+  // Finalize re-stamp: same startedAt, now with alignment + complete flag —
+  // SSE broadcasts it even though nowPlayingKey doesn't change.
   if (sessionId) {
     writeNowPlaying(sessionId, replayMeta, alignment, startedAt, tempoRate, {
       replayFile,
       grantId,
+      synthesisComplete: true,
     });
   }
 
