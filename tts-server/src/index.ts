@@ -386,7 +386,7 @@ if (loadConfig().dnd_auto) startDnd();
 // dead-pid passes required; cards younger than 2 min are never reaped (team.sh
 // bind can take ~90s). Side-effectful — NOT inside buildSnapshot().
 const REAPER_MS = 60_000;
-const REAPER_MIN_AGE_MS = 2 * 60_1000;
+const REAPER_MIN_AGE_MS = 2 * 60_000;
 const reaperMisses = new Map<string, number>();
 const reaperTimer = setInterval(() => {
   try {
