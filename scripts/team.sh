@@ -161,8 +161,13 @@ PY
 done
 
 if [ -z "$SESSION_ID" ]; then
-    log "Timeout binding $PERSONA — tmux session $TMUX_NAME left running"
-    say "Couldn't bind ${PERSONA} — no new session appeared"
+    # Grab the pane's last lines before killing it — a dead shell here usually
+    # means the tmux server can't access PROJECT_DIR (macOS privacy/TCC, e.g.
+    # Google Drive / Documents). The stderr tail surfaces as a room notice.
+    PANE_TAIL="$(tmux capture-pane -t "$TMUX_NAME" -p 2>/dev/null | grep -v '^$' | tail -2 | tr '\n' ' ' || true)"
+    tmux kill-session -t "$TMUX_NAME" 2>/dev/null || true
+    log "Timeout binding $PERSONA — killed $TMUX_NAME (pane: ${PANE_TAIL:-empty})"
+    echo "no session appeared for ${PERSONA}${PANE_TAIL:+ — ${PANE_TAIL}}" >&2
     exit 1
 fi
 
