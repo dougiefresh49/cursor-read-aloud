@@ -671,7 +671,12 @@
       color: var(--text);
     }
     .player-controls button:disabled { color: var(--muted); opacity: 0.4; }
-    .player-controls button .icon { width: 26px; height: 26px; }
+    /* display:block kills the inline-baseline drop that made icons sit low */
+    .player-controls button .icon { width: 26px; height: 26px; display: block; }
+    /* Optical centering: the play triangle reads left-heavy in a circle */
+    .player-controls use[href="#i-play"], #mini-pp use[href="#i-play"] { transform: translateX(1.5px); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .icon.spin { animation: spin 0.8s linear infinite; transform-origin: center; }
     /* Only the central play/pause is a filled accent circle (Spotify) */
     .player-controls #btn-pp {
       min-width: 64px;
@@ -1084,6 +1089,14 @@
   // Live handoff (§A3): awaiting the mac→phone replay record after a stop.
   let handoffAwait = null;     // { offsetSec, sessionId, startedAt, character, name }
   let handoffTimer = null;
+  // Mac pause/seek without SIGSTOP (v2.2): once replayFile exists, pause =
+  // stop + remember position; resume/seek = play_replay at offset. Kills the
+  // audio-stutter "seizure" SIGSTOP causes in ffplay.
+  let macPaused = null;        // { file, offsetSec, np }
+  let macActionPending = false; // stop/play_replay round-trip in flight
+  let macScrubbing = false;    // dragging the progress bar in a mac state
+  let phoneLoading = false;    // replay file loading into <audio>
+  const grantPending = new Map(); // sessionId → timeout id ("Working…" state)
 
   // Inline SVG icon markup for template strings.
   function iconHtml(id, extra) {
@@ -1345,7 +1358,18 @@
     const active = isNowPlayingActive(np);
     // Mac speaking through its own speakers → mac-live owns the player.
     if (active && np.output !== "phone") {
-      return { kind: "mac-live", nowPlaying: np };
+      // A genuinely new playback supersedes a remembered Mac pause. (Our own
+      // resume also lands here — by then macPaused is already cleared.)
+      if (macPaused && np.startedAt !== macPaused.np.startedAt) macPaused = null;
+      if (!macPaused) return { kind: "mac-live", nowPlaying: np };
+    }
+    // Paused-on-Mac (v2.2): the Mac was stopped at a position we remember.
+    if (macPaused) {
+      return {
+        kind: "mac-paused",
+        nowPlaying: macPaused.np,
+        offsetSec: macPaused.offsetSec,
+      };
     }
     // Otherwise, any loaded phone replay (playing, paused, or awaiting a tap).
     if (phoneMeta) {
@@ -1443,7 +1467,7 @@
   // Player "subject" = who + what the player is currently about.
   function playerSubject() {
     const ps = computePlayerState();
-    if (ps.kind === "mac-live") {
+    if (ps.kind === "mac-live" || ps.kind === "mac-paused") {
       const np = ps.nowPlaying;
       const agent = agentForSession(np.sessionId);
       return {
@@ -1481,6 +1505,7 @@
   function ppIcon() {
     const ps = computePlayerState();
     if (ps.kind === "mac-live") return snapshot.paused ? "play" : "pause";
+    if (ps.kind === "mac-paused") return "play";
     if (ps.kind === "phone-replay") {
       if (phonePendingTap) return "play";
       return !audio.paused && !audio.ended ? "pause" : "play";
@@ -1489,11 +1514,17 @@
   }
   let lastPpIcon = null;
   function renderPpButtons() {
-    const id = ppIcon();
+    // Busy = a round-trip (Mac stop/resume) or file load is in flight — show
+    // a spinner and refuse taps so "is it working?" never needs a second tap.
+    const busy = macActionPending || phoneLoading;
+    const id = busy ? "spinner" : ppIcon();
+    miniPp.disabled = busy;
+    btnPp.disabled = busy;
     if (id === lastPpIcon) return;
     lastPpIcon = id;
-    miniPp.innerHTML = iconHtml(id, "filled");
-    btnPp.innerHTML = iconHtml(id, "filled");
+    const html = busy ? iconHtml("rotate-ccw", "spin") : iconHtml(id, "filled");
+    miniPp.innerHTML = html;
+    btnPp.innerHTML = html;
   }
 
   function renderMiniChrome() {
@@ -1509,8 +1540,8 @@
       return;
     }
     const ps = computePlayerState();
-    const macl = ps.kind === "mac-live";
-    const frame = macl ? "speaking" : "idle";
+    const macl = ps.kind === "mac-live" || ps.kind === "mac-paused";
+    const frame = ps.kind === "mac-live" ? "speaking" : "idle";
     miniName.textContent = subject.name;
     miniAvatar.onerror = () => {
       miniAvatar.onerror = null;
@@ -1529,7 +1560,12 @@
   }
 
   function subjectMessageText(ps) {
-    if (ps.kind === "mac-live") return ps.nowPlaying.text || "";
+    // Message tab = the agent's ORIGINAL text (paths and all), never the
+    // character transcript; transcript lives in the other tab.
+    if (ps.kind === "mac-live" || ps.kind === "mac-paused") {
+      const np = ps.nowPlaying;
+      return np.rawText || np.text || "";
+    }
     if (ps.kind === "phone-replay") {
       const e = ps.entry;
       return e.rawText || e.spokenText || e.textPreview || "";
@@ -1618,12 +1654,16 @@
   }
 
   function updatePlayerProgress() {
+    if (macScrubbing) return; // drag preview owns the fill until release
     const ps = computePlayerState();
     let cur = 0;
     let dur = 0;
     if (ps.kind === "mac-live") {
       dur = macDurationMs(ps.nowPlaying) / 1000;
       cur = Math.min(dur, macElapsedMs(ps.nowPlaying) / 1000);
+    } else if (ps.kind === "mac-paused") {
+      dur = macDurationMs(ps.nowPlaying) / 1000;
+      cur = Math.min(dur, ps.offsetSec);
     } else if (ps.kind === "phone-replay") {
       dur = trackDurationSec();
       cur = audio.currentTime || 0;
@@ -1642,6 +1682,9 @@
     if (ps.kind === "mac-live") {
       const np = ps.nowPlaying;
       expKaraoke.innerHTML = karaokeFromAlignment(np.text, np.alignment, macElapsedMs(np));
+    } else if (ps.kind === "mac-paused") {
+      const np = ps.nowPlaying;
+      expKaraoke.innerHTML = karaokeFromAlignment(np.text, np.alignment, ps.offsetSec * 1000);
     } else if (ps.kind === "phone-replay") {
       const e = ps.entry;
       const elapsed = (audio.currentTime || 0) * 1000;
@@ -1671,12 +1714,94 @@
   /* ============================================================
      Transport (follows playerState.kind — §0)
      ============================================================ */
+  // Mac pause via stop-and-remember (no SIGSTOP stutter). Falls back to the
+  // legacy pause toggle only in the first seconds before replayFile exists.
+  function macPause(np) {
+    macActionPending = true;
+    macPaused = {
+      file: np.replayFile,
+      offsetSec: macElapsedMs(np) / 1000,
+      np,
+    };
+    renderPlayer();
+    postAction({ type: "stop" }).then((r) => {
+      macActionPending = false;
+      if (!r) {
+        macPaused = null;
+        toast("Couldn't pause");
+      }
+      renderPlayer();
+    });
+  }
+
+  function macResume() {
+    if (!macPaused || macActionPending) return;
+    macActionPending = true;
+    const { file, offsetSec } = macPaused;
+    renderPlayer();
+    postAction({ type: "play_replay", file, offsetSec }).then((r) => {
+      macActionPending = false;
+      if (r) macPaused = null;
+      else toast("Mac is busy");
+      renderPlayer();
+    });
+  }
+
+  function macSeek(targetSec) {
+    const ps = computePlayerState();
+    if (ps.kind === "mac-paused") {
+      macPaused.offsetSec = Math.max(0, targetSec);
+      renderPlayer();
+      return;
+    }
+    if (ps.kind !== "mac-live") return;
+    const np = ps.nowPlaying;
+    if (!np.replayFile) {
+      toast("Seek available in a moment");
+      return;
+    }
+    if (macActionPending) return;
+    macActionPending = true;
+    macPaused = { file: np.replayFile, offsetSec: Math.max(0, targetSec), np };
+    renderPlayer();
+    postAction({ type: "stop" }).then((r) => {
+      if (!r) {
+        macActionPending = false;
+        macPaused = null;
+        toast("Couldn't seek");
+        renderPlayer();
+        return;
+      }
+      postAction({
+        type: "play_replay",
+        file: np.replayFile,
+        offsetSec: macPaused ? macPaused.offsetSec : targetSec,
+      }).then((r2) => {
+        macActionPending = false;
+        if (r2) macPaused = null;
+        else toast("Mac is busy");
+        renderPlayer();
+      });
+    });
+  }
+
   async function transportPlayPause() {
+    if (macActionPending || phoneLoading) return;
     const ps = computePlayerState();
     if (ps.kind === "mac-live") {
+      const np = ps.nowPlaying;
+      if (np.replayFile) {
+        macPause(np);
+        return;
+      }
+      // Replay not saved yet (first seconds) — legacy SIGSTOP toggle.
       const wasPaused = !!snapshot.paused;
       const ok = await postAction({ type: "pause" });
       if (ok) toast(wasPaused ? "Mac playback resumed" : "Mac playback paused");
+      return;
+    }
+    if (ps.kind === "mac-paused") {
+      macResume();
       return;
     }
     if (ps.kind === "phone-replay") {
@@ -1711,7 +1836,12 @@
 
   // Restart button (§C4): the ONLY explicit rewind that isn't track-end.
   async function restartTrack() {
-    if (computePlayerState().kind !== "phone-replay") return;
+    const k = computePlayerState().kind;
+    if (k === "mac-live" || k === "mac-paused") {
+      macSeek(0);
+      return;
+    }
+    if (k !== "phone-replay") return;
     phonePendingTap = false;
     try { audio.currentTime = 0; } catch { /* not seekable */ }
     try { await audio.play(); } catch { toast("Tap again to play"); }
@@ -1723,6 +1853,12 @@
     if (ps.kind === "mac-live") {
       const ok = await postAction({ type: "stop" });
       if (ok) toast("Mac playback stopped");
+      return;
+    }
+    if (ps.kind === "mac-paused") {
+      macPaused = null;
+      macActionPending = false;
+      renderPlayer();
       return;
     }
     clearPhonePlayback();
@@ -1780,6 +1916,8 @@
       catchUpQueue = [];
     }
     phonePendingTap = false;
+    phoneLoading = true; // spinner until 'playing' (or pending-tap/error)
+    macPaused = null; // starting phone playback supersedes a Mac pause
     currentIndex = replayList.findIndex((e) => e.file === entry.file);
     phoneMeta = entry;
     pendingNewEntry = null;
@@ -1797,6 +1935,7 @@
     } catch {
       // Autoplay rejected — surface a tap-to-play affordance.
       phonePendingTap = true;
+      phoneLoading = false;
       toast("Ready — tap to play");
     }
     renderPlayer();
@@ -2075,11 +2214,23 @@
         // Primary action by state.
         let primary = "";
         if (agent.state === "hand_raised") {
-          const sub = outputPref === "phone" ? "on this phone" : "on Mac";
-          primary = `<button type="button" class="accent grow read-update" data-grant="${escapeHtml(
-            agent.sessionId
-          )}">${iconHtml("play", "filled sm")} Read update<span class="sub">${sub}</span></button>`;
+          if (grantPending.has(agent.sessionId)) {
+            primary = `<button type="button" class="accent grow read-update" disabled>${iconHtml(
+              "rotate-ccw",
+              "spin sm"
+            )} Working…</button>`;
+          } else {
+            const sub = outputPref === "phone" ? "on this phone" : "on Mac";
+            primary = `<button type="button" class="accent grow read-update" data-grant="${escapeHtml(
+              agent.sessionId
+            )}">${iconHtml("play", "filled sm")} Read update<span class="sub">${sub}</span></button>`;
+          }
         } else if (!speaking) {
+          // State moved past hand_raised — the grant landed; drop the pending.
+          if (grantPending.has(agent.sessionId)) {
+            clearTimeout(grantPending.get(agent.sessionId));
+            grantPending.delete(agent.sessionId);
+          }
           primary = `<button type="button" class="ghost grow" data-replay="${escapeHtml(
             agent.sessionId
           )}">Replay last</button>`;
@@ -2601,11 +2752,27 @@
     const grantEl = t.closest("[data-grant]");
     if (grantEl) {
       const sessionId = grantEl.getAttribute("data-grant");
+      if (grantPending.has(sessionId)) return; // already working — no double-fire
       const toPhone = outputPref === "phone";
       if (toPhone) primeAudio();
+      // "Working…" until the SSE state flip (cleared in renderMembers) or 25s.
+      grantPending.set(
+        sessionId,
+        setTimeout(() => {
+          grantPending.delete(sessionId);
+          renderMembers();
+        }, 25000)
+      );
+      renderMembers();
       postAction({ type: "grant", sessionId, output: toPhone ? "phone" : "mac" }).then((r) => {
-        if (r) toast(toPhone ? "Reading on this phone…" : "Reading on Mac…");
-        else toast("Couldn't start — another update may be playing");
+        if (r) {
+          toast(toPhone ? "Reading on this phone…" : "Reading on Mac…");
+        } else {
+          clearTimeout(grantPending.get(sessionId));
+          grantPending.delete(sessionId);
+          renderMembers();
+          toast("Couldn't start — another update may be playing");
+        }
       });
       return;
     }
@@ -2820,6 +2987,18 @@
       if (dev === "phone") beginMacToPhone();
       return; // tapping the current source is a no-op
     }
+    if (ps.kind === "mac-paused") {
+      // Mac already stopped at a known offset — switching to phone is just a
+      // local play of the same file from that spot.
+      if (dev === "phone") {
+        const { file, offsetSec } = macPaused;
+        const np = macPaused.np;
+        macPaused = null;
+        primeAudio();
+        playHandoffFile(file, np, offsetSec);
+      }
+      return;
+    }
     if (ps.kind === "phone-replay") {
       if (dev === "mac") beginPhoneToMac();
       return;
@@ -2837,21 +3016,53 @@
     try { audio.currentTime = frac * dur; } catch { /* not seekable yet */ }
     updatePlayerProgress();
   }
+  // Mac scrub applies once, on release — mid-drag we only preview the fill
+  // (each Mac seek is a stop + play_replay round-trip, not a slider).
+  function pointerFrac(ev) {
+    const rect = $("progress").getBoundingClientRect();
+    return Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+  }
+  function macDur(ps) {
+    return macDurationMs(ps.nowPlaying) / 1000;
+  }
   $("progress").addEventListener("pointerdown", (ev) => {
-    if (computePlayerState().kind !== "phone-replay") return;
-    scrubbing = true;
-    try { $("progress").setPointerCapture(ev.pointerId); } catch {}
-    seekToPointer(ev);
+    const k = computePlayerState().kind;
+    if (k === "phone-replay") {
+      scrubbing = true;
+      try { $("progress").setPointerCapture(ev.pointerId); } catch {}
+      seekToPointer(ev);
+    } else if (k === "mac-live" || k === "mac-paused") {
+      macScrubbing = true;
+      try { $("progress").setPointerCapture(ev.pointerId); } catch {}
+      progressFill.style.width = `${pointerFrac(ev) * 100}%`;
+    }
   });
   $("progress").addEventListener("pointermove", (ev) => {
     if (scrubbing) seekToPointer(ev);
+    else if (macScrubbing) progressFill.style.width = `${pointerFrac(ev) * 100}%`;
   });
-  $("progress").addEventListener("pointerup", () => { scrubbing = false; });
-  $("progress").addEventListener("pointercancel", () => { scrubbing = false; });
+  $("progress").addEventListener("pointerup", (ev) => {
+    scrubbing = false;
+    if (macScrubbing) {
+      macScrubbing = false;
+      const ps = computePlayerState();
+      if (ps.kind === "mac-live" || ps.kind === "mac-paused") {
+        macSeek(pointerFrac(ev) * macDur(ps));
+      }
+    }
+  });
+  $("progress").addEventListener("pointercancel", () => {
+    scrubbing = false;
+    macScrubbing = false;
+    updatePlayerProgress();
+  });
   $("progress").addEventListener("click", (ev) => {
-    if (computePlayerState().kind !== "phone-replay") return;
-    seekToPointer(ev);
-    checkListenedProgress();
+    const k = computePlayerState().kind;
+    if (k === "phone-replay") {
+      seekToPointer(ev);
+      checkListenedProgress();
+    }
+    // Mac kinds: pointerdown/up already applied the seek — click is a no-op.
   });
 
   // Swipe-down to collapse expanded.
@@ -2879,6 +3090,14 @@
 
   // Audio element events.
   audio.addEventListener("ended", () => onTrackEnded());
+  audio.addEventListener("playing", () => {
+    phoneLoading = false;
+    renderPlayer();
+  });
+  audio.addEventListener("error", () => {
+    phoneLoading = false;
+    renderPlayer();
+  });
   audio.addEventListener("play", () => renderPlayer());
   audio.addEventListener("pause", () => renderPlayer());
   audio.addEventListener("timeupdate", () => {

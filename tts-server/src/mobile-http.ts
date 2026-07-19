@@ -162,6 +162,7 @@ interface ReplayListEntry {
   character?: string;
   textPreview?: string;
   spokenText?: string;
+  rawText?: string;
   alignment?: unknown;
   playbackRate?: number;
   kind?: string;
@@ -193,6 +194,9 @@ function listReplays(): ReplayListEntry[] {
         typeof meta.textPreview === "string" ? meta.textPreview : undefined,
       spokenText:
         typeof meta.spokenText === "string" ? meta.spokenText : undefined,
+      // The agent's original message (pre-Gemini) — the Message tab shows
+      // this, not the character transcript.
+      rawText: typeof meta.rawText === "string" ? meta.rawText : undefined,
       alignment: meta.alignment,
       playbackRate:
         typeof meta.playbackRate === "number" ? meta.playbackRate : undefined,
