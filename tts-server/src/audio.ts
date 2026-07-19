@@ -155,6 +155,26 @@ export function isUnexpiredPhoneGrant(): boolean {
   return activePhoneGrantId() !== null;
 }
 
+/**
+ * An explicit user grant supersedes an active phone grant (e.g. paused Mikey
+ * mid-message, tapped Donnie): close the old window now so the new grant can
+ * start. Returns false only while the old grant is still SYNTHESIZING — the
+ * stream lock is held and the writer owns now-playing; superseding then would
+ * let the finalize re-stamp hijack the new grant's record.
+ */
+export function supersedePhoneGrant(): boolean {
+  try {
+    if (!existsSync(NOW_PLAYING_PATH)) return true;
+    const np = JSON.parse(readFileSync(NOW_PLAYING_PATH, "utf-8")) as NowPlaying;
+    if (!np || np.endedAt || np.output !== "phone" || !np.grantId) return true;
+    if (np.synthesisComplete === false) return false;
+    clearNowPlaying();
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 // Playback over: don't delete — stamp endedAt so the panel can keep showing
 // the last message. The next playback overwrites the file.
 function clearNowPlaying(): void {

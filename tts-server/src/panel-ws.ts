@@ -14,7 +14,7 @@ import { runStatusSay } from "./status-say.js";
 import { knownDirs, isResumableSession, listResumable } from "./session-catalog.js";
 import { HID_ACTIONS, captureNextPress, isCaptureReady } from "./hid.js";
 import { buildShortcutsPayload } from "./shortcuts.js";
-import { isUnexpiredPhoneGrant, startPlayReplay } from "./audio.js";
+import { isUnexpiredPhoneGrant, supersedePhoneGrant, startPlayReplay } from "./audio.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHARACTERS_PATH = join(__dirname, "characters.json");
@@ -1049,10 +1049,14 @@ export function dispatchPanelAction(raw: unknown): boolean {
     return false;
   }
 
-  // One now-playing at a time — refuse while a phone grant's window is open.
+  // An explicit grant supersedes an active phone grant (paused mid-message,
+  // tapped another agent). Refused only while the old grant is mid-synthesis.
   if (msg.type === "grant" && isUnexpiredPhoneGrant()) {
-    log("panel-ws", "refusing grant — phone grant still active");
-    return false;
+    if (!supersedePhoneGrant()) {
+      log("panel-ws", "refusing grant — phone grant still synthesizing");
+      return false;
+    }
+    log("panel-ws", "superseding active phone grant");
   }
 
   dispatch(msg);
@@ -1218,9 +1222,12 @@ function handleMessage(ws: WebSocket, raw: unknown): void {
   }
 
   if (msg.type === "grant" && isUnexpiredPhoneGrant()) {
-    log("panel-ws", "refusing WS grant — phone grant still active");
-    sendError(ws, "bad_message");
-    return;
+    if (!supersedePhoneGrant()) {
+      log("panel-ws", "refusing WS grant — phone grant still synthesizing");
+      sendError(ws, "bad_message");
+      return;
+    }
+    log("panel-ws", "superseding active phone grant");
   }
 
   if (msg.type === "focus_terminal" || msg.type === "kill_team") {

@@ -98,14 +98,16 @@ for path in sorted(paths):
 PY
 )"
 
+# --remote-control: every team session is also reachable from the Claude
+# mobile app — backup channel when voice reply isn't working.
 if [ -n "$RESUME_ID" ]; then
     log "Launching $TMUX_NAME in $PROJECT_DIR (resume $RESUME_ID)"
     tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" \
-        claude --dangerously-skip-permissions --resume "$RESUME_ID"
+        claude --dangerously-skip-permissions --remote-control "$TMUX_NAME" --resume "$RESUME_ID"
 else
     log "Launching $TMUX_NAME in $PROJECT_DIR"
     tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" \
-        claude --dangerously-skip-permissions
+        claude --dangerously-skip-permissions --remote-control "$TMUX_NAME"
 fi
 
 tmux set-option -t "$TMUX_NAME" mouse on 2>/dev/null || true
