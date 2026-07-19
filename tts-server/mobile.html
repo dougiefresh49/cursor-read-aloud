@@ -1739,9 +1739,9 @@
 
     // Transport visibility: prev/next and speed are phone-only (Mac rate is
     // baked/atempo); stop is mac-owned; play/pause always shown. Mac progress
-    // is seekable once replayFile exists. Speed is dimmed during live streams.
+    // is seekable once replayFile exists.
     btnSpeed.hidden = !phone;
-    btnSpeed.disabled = liveMode;
+    btnSpeed.disabled = false;
     updateSpeedLabel();
     btnPrev.hidden = !phone;
     btnNext.hidden = !phone;
@@ -1984,8 +1984,10 @@
     const label = btnSpeed.querySelector(".speed-label");
     if (label) label.textContent = fmtSpeed(speedMult);
   }
+  // Applies in live mode too: EL synthesis outpaces realtime, so playback just
+  // trails the growing edge; catching it is a normal buffer underrun (browser
+  // auto-resumes when bytes arrive, watchdog covers dead connections).
   function applySpeed() {
-    if (liveMode) return; // live streams can't sustain >1× (edge starvation)
     const base =
       phoneMeta?.playbackRate && phoneMeta.playbackRate > 0
         ? phoneMeta.playbackRate
@@ -2088,14 +2090,14 @@
     liveBaseSec = 0;
     liveRetries = 0;
     if (live) {
-      // Growing file: chunked live tail. No rate multiplier (it would starve
-      // at the edge) — speed re-applies when the track goes static.
+      // Growing file: chunked live tail. Full rate applies here too — the
+      // baked residual (entry.playbackRate) is part of the configured speed,
+      // not an optional extra.
       audio.src = `/live-audio/${encodeURIComponent(entry.file)}?v=${Date.now()}`;
-      audio.playbackRate = 1;
     } else {
       audio.src = `/replay-audio/${encodeURIComponent(entry.file)}`;
-      applySpeed();
     }
+    applySpeed();
     renderPlayer();
     renderMessages();
     updateBars();
@@ -2244,7 +2246,7 @@
     // Server contract: bytes from `from` to EOF (tailing the .part while it
     // grows, or draining the finalized file) — position is always ours.
     audio.src = `/live-audio/${encodeURIComponent(phoneMeta.file)}?from=${fromBytes}&v=${Date.now()}`;
-    audio.playbackRate = 1;
+    applySpeed();
     try { await audio.play(); } catch {
       phonePendingTap = true;
       toast("Tap to keep playing");
