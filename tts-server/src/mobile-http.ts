@@ -301,7 +301,13 @@ async function serveLiveAudio(
   });
   let offset = from;
   let closed = false;
-  const onGone = () => { closed = true; };
+  let activeRead: ReturnType<typeof createReadStream> | null = null;
+  const onGone = () => {
+    closed = true;
+    // A pump paused on backpressure would wait forever for a drain that never
+    // comes — tear the read stream down so its promise settles.
+    try { activeRead?.destroy(); } catch { /* already gone */ }
+  };
   req.on("close", onGone);
   res.on("close", onGone);
 
@@ -310,16 +316,30 @@ async function serveLiveAudio(
   };
   const pump = (p: string, end: number): Promise<void> =>
     new Promise((done) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        activeRead = null;
+        done();
+      };
       const rs = createReadStream(p, { start: offset, end: end - 1 });
+      activeRead = rs;
       rs.on("data", (c: string | Buffer) => {
+        if (closed) {
+          rs.destroy();
+          finish();
+          return;
+        }
         offset += c.length;
         if (!res.write(c)) {
           rs.pause();
           res.once("drain", () => rs.resume());
         }
       });
-      rs.on("end", () => done());
-      rs.on("error", () => done());
+      rs.on("close", finish);
+      rs.on("end", finish);
+      rs.on("error", finish);
     });
 
   const deadline = Date.now() + LIVE_MAX_MS;

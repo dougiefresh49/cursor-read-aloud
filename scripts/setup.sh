@@ -245,13 +245,17 @@ def is_our_hook(h):
 
 data = {}
 if os.path.isfile(path):
+    # Never overwrite a settings file we couldn't parse — that would silently
+    # discard the user's model/plugin/hook config. Bail and ask for repair.
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        if not isinstance(data, dict):
-            data = {}
     except (OSError, json.JSONDecodeError):
-        data = {}
+        print("unreadable")
+        raise SystemExit(0)
+    if not isinstance(data, dict):
+        print("unreadable")
+        raise SystemExit(0)
 
 hooks = data.get("hooks")
 if not isinstance(hooks, dict):
@@ -291,6 +295,8 @@ if [ "$MERGE_RESULT" = "added" ]; then
     log "Added SessionEnd hook to $CLAUDE_SETTINGS"
 elif [ "$MERGE_RESULT" = "exists" ]; then
     log "SessionEnd hook already registered in $CLAUDE_SETTINGS"
+elif [ "$MERGE_RESULT" = "unreadable" ]; then
+    log "WARNING: $CLAUDE_SETTINGS is not valid JSON — left untouched; add the SessionEnd hook manually after repairing it"
 else
     log "SessionEnd merge skipped/failed (result=${MERGE_RESULT:-empty})"
 fi

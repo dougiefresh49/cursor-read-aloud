@@ -2580,6 +2580,7 @@ function handleMessage(raw: string) {
     settings?: unknown;
     values?: unknown;
     voices?: unknown;
+    message?: string;
   };
   try {
     msg = JSON.parse(raw);
@@ -2691,6 +2692,14 @@ function handleMessage(raw: string) {
     shortcutsLoaded = true;
     shortcutsAvailable = true;
     if (settingsOpen && settingsTab === "help") render();
+    return;
+  }
+
+  // Typed notices (spawn failures, dedup rejections, stale tmux) — the server
+  // broadcasts these when a fire-and-forget action fails after the optimistic
+  // "launching…" toast.
+  if (msg.type === "notice" && typeof msg.message === "string") {
+    showErrorToast(msg.message);
     return;
   }
 

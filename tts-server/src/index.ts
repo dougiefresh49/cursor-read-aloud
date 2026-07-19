@@ -275,8 +275,13 @@ async function processQueueFile(
     ) {
       await maybePlayVictoryLine(voiceId);
     }
-    // Phone sink already moved it via onPersisted.
-    if (existsSync(filePath)) moveToPlayed(filePath);
+    // Phone sink already moved it via onPersisted — if the item is still in
+    // queue/ after a phone-sink failure, no durable audio was saved: failed/,
+    // not played/ (either way it's never re-buyable — credits are spent).
+    if (existsSync(filePath)) {
+      if (sink === "none" && code !== 0) moveToFailed(filePath);
+      else moveToPlayed(filePath);
+    }
   } catch (err: any) {
     log("server", `Error processing ${name}: ${err.message}`);
     if (existsSync(filePath)) moveToFailed(filePath);

@@ -1145,6 +1145,7 @@
   let liveBaseSec = 0;         // seconds consumed by previous live connections
   let liveNp = null;           // latest nowPlaying frame for the live file
   let liveRetries = 0;         // consecutive edge-reconnects without progress
+  let liveProgressWall = 0;    // wall-clock of last live timeupdate (watchdog)
   const LIVE_BYTES_PER_SEC = 16000; // mp3_44100_128 is CBR 128kbps
 
   // Playback-speed multiplier (v2.3): applied on top of the entry's baked
@@ -2225,7 +2226,8 @@
   // The live stream ended/errored at the growing edge but synthesis isn't
   // done — reconnect from where we left off (byte offset ≈ seconds × CBR rate).
   async function reconnectLive() {
-    if (!phoneMeta?.file) return;
+    if (!phoneMeta?.file || !liveMode) return;
+    liveProgressWall = Date.now();
     liveBaseSec += audio.currentTime || 0;
     if (liveComplete) {
       await switchLiveToStatic(liveBaseSec);
@@ -3376,8 +3378,19 @@
   });
   audio.addEventListener("error", () => {
     if (liveMode && !liveComplete && phoneMeta?.file) {
+      // Guard the delayed retry against track switches (stale timer must not
+      // restart a newly selected track).
+      const gen = phoneLoadGen;
+      const file = phoneMeta.file;
       setTimeout(() => {
-        if (liveMode && !liveComplete) reconnectLive();
+        if (
+          gen === phoneLoadGen &&
+          liveMode &&
+          !liveComplete &&
+          phoneMeta?.file === file
+        ) {
+          reconnectLive();
+        }
       }, 500);
       return;
     }
@@ -3388,10 +3401,23 @@
   audio.addEventListener("pause", () => renderPlayer());
   audio.addEventListener("timeupdate", () => {
     // Forward progress on a live connection means reconnects are working.
-    if (liveMode && audio.currentTime > 1) liveRetries = 0;
+    if (liveMode) {
+      liveProgressWall = Date.now();
+      if (audio.currentTime > 1) liveRetries = 0;
+    }
     updatePlayerProgress();
     checkListenedProgress();
   });
+
+  // Live stall watchdog: iOS can wedge on a dead connection without firing
+  // ended/error — if a playing live stream makes no progress for 5s, reconnect.
+  setInterval(() => {
+    if (!liveMode || liveComplete || audio.paused || phonePendingTap) return;
+    if (liveProgressWall && Date.now() - liveProgressWall > 5000) {
+      liveProgressWall = Date.now();
+      reconnectLive();
+    }
+  }, 2000);
   audio.addEventListener("loadedmetadata", () => {
     // Apply a pending handoff seek once the file's duration is known.
     if (pendingSeekSec > 0) {

@@ -182,7 +182,7 @@ data[persona] = {
     "createdAt": datetime.now(timezone.utc).isoformat(),
 }
 
-tmp = path + ".tmp"
+tmp = f"{path}.tmp.{os.getpid()}"
 with open(tmp, "w", encoding="utf-8") as fh:
     json.dump(data, fh, indent=2)
     fh.write("\n")

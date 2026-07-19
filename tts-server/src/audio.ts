@@ -518,6 +518,13 @@ function openReplayWriter(queueFile: string, meta?: ReplayMeta): ReplayWriter | 
     const filePath = join(REPLAY_DIR, filename);
     const partPath = `${filePath}.part`;
     const stream: WriteStream = createWriteStream(partPath);
+    // Without a listener a stream 'error' (disk full, unlinked dir) is an
+    // uncaught exception that kills the daemon. Remember it; write/finalize
+    // surface it as a failed promise / null result instead.
+    let streamErr: Error | null = null;
+    stream.on("error", (err) => {
+      streamErr = err;
+    });
     // Initial sidecar: everything known pre-synthesis, so a client that reads
     // it mid-stream never sees an empty entry. Finalize overwrites with
     // alignment/rate added.
@@ -531,6 +538,7 @@ function openReplayWriter(queueFile: string, meta?: ReplayMeta): ReplayWriter | 
     return {
       filename,
       write(chunk: Uint8Array): Promise<void> {
+        if (streamErr) return Promise.reject(streamErr);
         total += chunk.length;
         return new Promise((res, rej) => {
           stream.write(Buffer.from(chunk), (err) => (err ? rej(err) : res()));
@@ -538,7 +546,20 @@ function openReplayWriter(queueFile: string, meta?: ReplayMeta): ReplayWriter | 
       },
       finalize(finalMeta?: ReplayMeta): Promise<string | null> {
         return new Promise((res) => {
+          // An errored/destroyed stream may never run the end() callback —
+          // settle immediately instead of wedging the drain.
+          if (streamErr) {
+            log("audio", `Failed to finalize replay: ${streamErr.message}`);
+            try { stream.destroy(); } catch {}
+            res(null);
+            return;
+          }
           stream.end(() => {
+            if (streamErr) {
+              log("audio", `Failed to finalize replay: ${streamErr.message}`);
+              res(null);
+              return;
+            }
             try {
               renameSync(partPath, filePath);
               if (finalMeta) {
