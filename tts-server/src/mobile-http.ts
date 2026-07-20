@@ -17,7 +17,7 @@ import {
 import { networkInterfaces } from "os";
 import { basename, dirname, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
-import { loadConfig, TTS_DIR, SESSION_VOICES_PATH } from "./config.js";
+import { loadConfig, TTS_DIR, SESSION_VOICES_PATH, PHRASES_DIR } from "./config.js";
 import { buildPanelSnapshot, subscribe } from "./state-watch.js";
 import { dispatchPanelAction, handleReplyAction, onNotice } from "./panel-ws.js";
 import { pickerPayload } from "./session-catalog.js";
@@ -514,6 +514,19 @@ async function handleRequest(
   if (method === "GET" && path.startsWith("/avatars/")) {
     const rel = path.slice("/avatars/".length);
     const filePath = safePathUnder(resolveAvatarsRoot(), rel);
+    if (!filePath) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    serveFile(res, filePath);
+    return;
+  }
+
+  // Cached ack phrase clips ("<voiceId>/<file>.mp3") for phone-routed acks.
+  if (method === "GET" && path.startsWith("/phrase-audio/")) {
+    const rel = path.slice("/phrase-audio/".length);
+    const filePath = rel.endsWith(".mp3") ? safePathUnder(PHRASES_DIR, rel) : null;
     if (!filePath) {
       res.writeHead(404);
       res.end();

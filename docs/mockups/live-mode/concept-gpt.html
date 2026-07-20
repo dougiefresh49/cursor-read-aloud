@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Room of Devs — Live line concept</title>
+  <style>
+    :root{--bg:#080a0d;--phone:#0f1115;--card:#171a20;--card2:#20242c;--line:rgba(255,255,255,.10);--text:#eef1f3;--muted:#90969f;--green:#4ade80;--green-d:#163822;--blue:#66a9ff;--amber:#efbd58;--red:#ff6b6b;--r:16px}
+    *{box-sizing:border-box} html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif} button,textarea{font:inherit} button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+    body{display:grid;place-items:start center;padding:22px 12px 40px;background:radial-gradient(circle at 50% 0,#1b2029 0,transparent 42%),#080a0d}
+    .demo{width:min(100%,430px)} .state-picker{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px;margin-bottom:10px;border:1px solid var(--line);border-radius:13px;background:#11141a;position:sticky;top:6px;z-index:20;box-shadow:0 8px 30px #0008}
+    .state-picker button{min-height:40px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:.72rem;font-weight:700}.state-picker button.active{background:#2b3039;color:#fff;box-shadow:0 1px 0 #ffffff12 inset}
+    .phone{height:min(820px,calc(100vh - 92px));min-height:680px;position:relative;overflow:hidden;display:flex;flex-direction:column;background:var(--phone);border:1px solid #323741;border-radius:28px;box-shadow:0 30px 80px #000b}
+    .phone.live{border-color:#338c52;box-shadow:0 0 0 2px #4ade8030,0 30px 80px #000b}.phone.live:before{content:"";height:3px;position:absolute;inset:0 0 auto;background:var(--green);z-index:9;animation:breathe 1.5s ease-in-out infinite}
+    @keyframes breathe{50%{opacity:.35}} @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    .top{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;padding:10px 12px 8px}.icon-btn{width:44px;height:44px;border:0;background:transparent;color:var(--muted);border-radius:50%;font-size:1.5rem}.title{text-align:center;font-weight:700;font-size:.93rem}.title small{display:block;color:var(--muted);font-size:.69rem;font-weight:550;margin-top:1px}.more{font-size:1.25rem}
+    .identity{display:flex;align-items:center;gap:11px;padding:0 18px 14px}.avatar{width:48px;height:48px;border-radius:14px;flex:0 0 auto;overflow:hidden;background:#272d35;border:1px solid #ffffff18}.avatar svg{display:block;width:100%;height:100%}.who{min-width:0;flex:1}.name{font-size:1.18rem;font-weight:760;letter-spacing:-.025em}.presence{font-size:.77rem;color:var(--muted);margin-top:2px}.presence b{color:var(--green);font-weight:650}.live-trigger{height:42px;padding:0 14px;border:1px solid #3d654a;border-radius:21px;color:#caffda;background:#17281d;font-weight:750;font-size:.79rem;display:flex;align-items:center;gap:7px}.live-trigger .wave{letter-spacing:-3px;color:var(--green)}
+    .cost-banner{display:none;align-items:center;gap:9px;margin:0 14px 10px;padding:9px 11px;border:1px solid #37774b;border-radius:12px;background:#14271b;color:#d9ffe5;font-size:.76rem}.live .cost-banner{display:flex}.live .live-trigger{visibility:hidden}.cost-banner strong{font-size:.78rem}.cost-banner span:last-child{margin-left:auto;color:#9fcca9}.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px #4ade8017;animation:breathe 1.2s infinite}
+    .scroll{flex:1;overflow:auto;padding:2px 14px 18px;scrollbar-width:none}.scroll::-webkit-scrollbar{display:none}.date{text-align:center;color:#646b75;font-size:.68rem;font-weight:650;margin:3px 0 16px;text-transform:uppercase;letter-spacing:.09em}.turn{margin-bottom:17px;animation:rise .35s ease both}.label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.68rem;font-weight:720;text-transform:uppercase;letter-spacing:.07em;margin:0 4px 6px}.label .stamp{font-weight:500;text-transform:none;letter-spacing:0;margin-left:auto;color:#676e78}.bubble{border:1px solid var(--line);border-radius:15px;background:var(--card);padding:12px 13px;font-size:.89rem;line-height:1.48}.turn.you .bubble{margin-left:34px;background:#21262e;border-bottom-right-radius:5px}.turn.agent .bubble{margin-right:15px;border-bottom-left-radius:5px}.playline{display:flex;gap:10px;align-items:center;margin-top:10px;color:var(--muted);font-size:.73rem}.round-play{width:34px;height:34px;border-radius:50%;border:1px solid #3a6647;background:#1b3122;color:var(--green);padding:0}.seen{color:#68707a;margin-left:auto}
+    .stream-block{border-left:2px solid #3c8854;padding-left:13px;margin:0 5px 18px}.stream-item{padding:0 0 16px}.stream-item:last-child{padding-bottom:0}.stream-meta{font-size:.69rem;color:#70ce8c;margin-bottom:5px}.stream-copy{font-size:.9rem;line-height:1.48}.typing{display:inline-flex;gap:4px;margin-left:5px}.typing i{width:4px;height:4px;border-radius:50%;background:var(--green);animation:breathe .9s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+    .working-card{min-height:215px;display:grid;place-items:center;text-align:center;border:1px dashed #334252;border-radius:18px;background:linear-gradient(145deg,#141820,#111419);padding:24px}.orbit{width:62px;height:62px;border:1px solid #34475d;border-radius:50%;position:relative;margin:auto auto 16px}.orbit:after{content:"";width:9px;height:9px;border-radius:50%;background:var(--blue);position:absolute;top:-5px;left:26px;box-shadow:0 0 14px #66a9ff;animation:spin 1.8s linear infinite;transform-origin:5px 36px}@keyframes spin{to{transform:rotate(360deg)}}.working-card h2{font-size:1rem;margin:0 0 6px}.working-card p{font-size:.78rem;color:var(--muted);margin:0;line-height:1.45}.ack{display:inline-flex;gap:6px;align-items:center;color:#b6c7db;background:#1d2631;border-radius:999px;padding:6px 10px;margin-top:14px;font-size:.7rem}
+    .final-tag{display:inline-flex;align-items:center;gap:7px;color:#bdf6cd;font-size:.72rem;font-weight:700;margin-bottom:7px}.final-tag:before{content:"✓";display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--green-d);color:var(--green)}
+    .composer{padding:10px 12px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#12151a}.composer-row{display:flex;gap:7px;align-items:flex-end}.composer textarea{height:46px;min-height:46px;max-height:96px;resize:none;flex:1;border:1px solid var(--line);border-radius:15px;background:#20242b;color:var(--text);padding:12px;font-size:.86rem;outline:0}.composer textarea:focus{border-color:#47775a}.composer button{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:#22272e;color:#d6dae0;padding:0;font-size:1rem}.composer .send{background:var(--green);color:#0b1710;border-color:var(--green);font-size:1.1rem}.composer-note{display:flex;justify-content:space-between;color:#69717b;font-size:.65rem;margin:7px 4px 0}.live .composer-note .mode{color:#74d890}
+    .live-dock{display:none;padding:9px 12px;border-top:1px solid #2d593a;background:#132018;gap:8px;align-items:center}.live .live-dock{display:flex}.live-dock button{height:46px;border-radius:23px;font-weight:750}.pause{width:46px;border:1px solid #42694e;background:#1e3325;color:#d8ffe3}.end{flex:1;border:1px solid #7c4040;background:#341c1e;color:#ffd5d5}.live-dock small{color:#8fba9a;font-size:.66rem;line-height:1.2;width:72px}
+    [data-state]{display:none}.phone[data-view="idle"] [data-state="idle"],.phone[data-view="live"] [data-state="live"],.phone[data-view="working"] [data-state="working"],.phone[data-view="final"] [data-state="final"]{display:block}.phone[data-view="working"] .presence b{color:var(--blue)}
+    @media(max-height:760px){body{padding-top:8px}.phone{min-height:620px;height:calc(100vh - 66px)}.identity{padding-bottom:9px}.bubble{padding:10px 12px}.turn{margin-bottom:12px}}
+    @media(max-width:440px){body{padding:0;background:var(--phone)}.demo{width:100%}.state-picker{margin:0;border-radius:0;top:0}.phone{height:calc(100vh - 48px);min-height:590px;border:0;border-radius:0;box-shadow:none}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+<main class="demo">
+  <nav class="state-picker" aria-label="Mockup states">
+    <button class="active" data-go="idle">A · Idle</button><button data-go="live">B · Live</button><button data-go="working">C · Working</button><button data-go="final">D · Final</button>
+  </nav>
+  <section class="phone" data-view="idle" aria-live="polite">
+    <header class="top"><button class="icon-btn" aria-label="Collapse">⌄</button><div class="title">Conversation<small>read + reply session</small></div><button class="icon-btn more" aria-label="More options">•••</button></header>
+    <div class="identity">
+      <div class="avatar" aria-hidden="true"><svg viewBox="0 0 80 80"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#421f2d"/><stop offset="1" stop-color="#171c2c"/></linearGradient></defs><rect width="80" height="80" fill="url(#g)"/><path d="M19 70c2-18 12-25 22-25s21 8 23 25" fill="#6f2032"/><circle cx="41" cy="32" r="19" fill="#d7a181"/><path d="M20 35c0-25 13-28 23-27 15 2 21 14 18 29-7-8-12-13-25-14-4 6-9 10-16 12z" fill="#15161b"/><path d="M29 36h8m9 0h8" stroke="#342622" stroke-width="2" stroke-linecap="round"/><path d="M37 44c3 2 6 2 9 0" fill="none" stroke="#814c46" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <div class="who"><div class="name">Karai</div><div class="presence"><b id="presence">Ready</b> · tmux / api-fix</div></div>
+      <button class="live-trigger" data-go="live"><span class="wave">▮▮▮</span> Go live</button>
+    </div>
+    <div class="cost-banner"><i class="live-dot"></i><strong>LIVE AUDIO ON</strong><span>intermediates use credits</span></div>
+    <div class="scroll">
+      <div data-state="idle">
+        <div class="date">Today · recent turns</div>
+        <article class="turn you"><div class="label">You <span class="stamp">2:16 PM</span></div><div class="bubble">The preview server still points at the old workspace. Can you trace where the cwd is coming from?</div></article>
+        <article class="turn agent"><div class="label">Karai <span class="stamp">2:18 PM</span></div><div class="bubble">Found it. The tmux session inherited its working directory before the repo moved. I’ve updated the launcher to resolve the project path at startup.</div><div class="playline"><button class="round-play" aria-label="Play response">▶</button><span>Play response · 0:24</span><span class="seen">Heard</span></div></article>
+        <article class="turn you"><div class="label">You <span class="stamp">2:21 PM</span></div><div class="bubble">Nice. Add a guard for missing directories too.</div></article>
+      </div>
+      <div data-state="live">
+        <div class="date">Live transcript · now</div>
+        <section class="stream-block">
+          <article class="stream-item"><div class="stream-meta">2:22:06 PM · spoken</div><div class="stream-copy">I’ll inspect the launcher path and the tmux bootstrap first.</div></article>
+          <article class="stream-item"><div class="stream-meta">2:22:18 PM · spoken</div><div class="stream-copy">Found the edge case — the existence check happens after the session is created.</div></article>
+          <article class="stream-item"><div class="stream-meta">2:22:31 PM · speaking now</div><div class="stream-copy">I’m moving validation ahead of session creation and adding a clear error with the missing path<span class="typing"><i></i><i></i><i></i></span></div></article>
+        </section>
+        <article class="turn you"><div class="label">You can interrupt anytime</div><div class="bubble">Reply below while Karai works. Your message enters the same terminal session.</div></article>
+      </div>
+      <div data-state="working">
+        <div class="date">Reply sent · 2:22 PM</div>
+        <section class="working-card"><div><div class="orbit"></div><h2>Karai is working…</h2><p>Your old response is tucked into history.<br>Live listening is optional for this turn.</p><div class="ack">♪ “On it, boss.” · played</div></div></section>
+        <article class="turn you" style="margin-top:16px"><div class="label">Your reply</div><div class="bubble">Add a guard for missing directories too.</div></article>
+      </div>
+      <div data-state="final">
+        <div class="date">Completed · 2:24 PM</div>
+        <article class="turn agent"><div class="final-tag">Final response ready</div><div class="bubble">Done. The launcher now validates the workspace before creating the tmux session, exits with a readable path-specific error, and includes coverage for moved or deleted directories.</div><div class="playline"><button class="round-play" aria-label="Play final response">▶</button><span>Play response · 0:19</span><span class="seen">New</span></div></article>
+        <article class="turn agent"><div class="label">Changed</div><div class="bubble">Updated <code>launch-session.sh</code> and added two path validation cases.</div></article>
+      </div>
+    </div>
+    <div class="live-dock"><button class="pause" aria-label="Pause live audio">Ⅱ</button><small>Streaming to this phone</small><button class="end" data-go="idle">End live</button></div>
+    <footer class="composer"><div class="composer-row"><textarea aria-label="Reply to Karai" placeholder="Reply to Karai…"></textarea><button aria-label="Dictate reply">◉</button><button class="send" aria-label="Send reply" data-go="working">↑</button></div><div class="composer-note"><span>Text or dictate</span><span class="mode">Reply enters Karai’s terminal</span></div></footer>
+  </section>
+</main>
+<script>
+  const phone=document.querySelector('.phone'), tabs=[...document.querySelectorAll('.state-picker button')], presence=document.querySelector('#presence');
+  const labels={idle:'Ready',live:'Listening live',working:'Working',final:'Finished'};
+  function show(view){phone.dataset.view=view;phone.classList.toggle('live',view==='live');presence.textContent=labels[view];tabs.forEach(b=>b.classList.toggle('active',b.dataset.go===view));phone.querySelector('.scroll').scrollTop=0}
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b)show(b.dataset.go)});
+</script>
+</body>
+</html>

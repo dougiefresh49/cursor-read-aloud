@@ -21,6 +21,7 @@ import {
 import { isProcessing } from "./audio.js";
 import { log } from "./logger.js";
 import { loadTeamMap, writeTeamMap, tmuxForSession } from "./team-map.js";
+import { clearLiveSession } from "./live-mode.js";
 
 // Room state for a single Claude Code session. One JSON file per session at
 // STATE_DIR/<sessionId>.json — separate-process writers (Stop-hook ingest,
@@ -209,6 +210,7 @@ export function cleanupSession(sessionId: string): void {
   if (!sessionId) return;
   removeSessionState(sessionId);
   removeSessionVoice(sessionId);
+  clearLiveSession(sessionId);
 
   const team = loadTeamMap();
   let changed = false;

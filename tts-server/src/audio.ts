@@ -71,8 +71,9 @@ export interface NowPlaying {
   // bubble can keep showing the previous message until the next one starts.
   endedAt?: string;
   // "ack" = short prompt acknowledgment — the panel keeps it off the stage
-  // (no spotlight/card growth); absent/"update" = full treatment.
-  kind?: "ack" | "update";
+  // (no spotlight/card growth); "live" = intermediate live-mode clip;
+  // absent/"update" = full treatment.
+  kind?: "ack" | "update" | "live";
   // Grant-to-phone: phone plays this exact replay file; Mac speakers stay quiet.
   output?: "mac" | "phone";
   replayFile?: string;
@@ -460,8 +461,9 @@ export interface ReplayMeta {
   alignment?: AlignmentTuples;
   // Post-EL atempo factor for karaoke sync (see playStreamBuffer tempoRate).
   playbackRate?: number;
-  // "ack" keeps short prompt acknowledgments off the panel's stage.
-  kind?: "ack" | "update";
+  // "ack" keeps short prompt acknowledgments off the panel's stage;
+  // "live" marks an intermediate live-mode clip (conversation view dims it).
+  kind?: "ack" | "update" | "live";
 }
 
 function pruneReplayDir(): void {

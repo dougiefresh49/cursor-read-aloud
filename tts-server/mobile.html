@@ -560,6 +560,108 @@
       color: var(--accent);
       margin-bottom: 12px;
     }
+    /* ── Conversation view (reply-capable agents) ── */
+    #expanded.convo { overflow: hidden; }
+    #expanded.convo .exp-tabs,
+    #expanded.convo .exp-content,
+    #expanded.convo .progress-row,
+    #expanded.convo .exp-device-row,
+    #expanded.convo #btn-prev,
+    #expanded.convo #btn-next,
+    #expanded.convo #btn-stop { display: none; }
+    #expanded.convo .exp-avatar {
+      width: 64px; height: 64px; border-radius: 16px; margin: 2px auto 6px;
+      box-shadow: none;
+    }
+    #expanded.convo .exp-name { font-size: 1.05rem; margin-bottom: 2px; }
+    #expanded.convo .player-controls { margin: 6px 0 2px; }
+    /* Edge glow while LIVE (gpt concept): breathing top strip. */
+    #expanded.convo.live-on::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: var(--accent); z-index: 5; animation: cv-breathe 1.5s ease-in-out infinite;
+    }
+    @keyframes cv-breathe { 50% { opacity: 0.3; } }
+    .cv-status {
+      text-align: center; font-size: 0.8rem; color: var(--muted);
+      margin-bottom: 8px; min-height: 1.1em;
+    }
+    .cv-status .dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      margin-right: 6px; vertical-align: 1px; background: var(--idle);
+    }
+    .cv-status .dot.working { background: var(--working); }
+    .cv-status .dot.speaking { background: var(--speaking); }
+    .cv-status .dot.live { background: var(--accent); animation: cv-breathe 1.2s infinite; }
+    #exp-live-btn {
+      display: none; align-items: center; gap: 7px; margin: 0 auto 8px;
+      border-radius: 999px; padding: 9px 18px; font-size: 0.85rem; font-weight: 700;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    }
+    #expanded.convo #exp-live-btn { display: inline-flex; }
+    #exp-live-btn .orb {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--muted);
+    }
+    #exp-live-btn.armed { border-color: var(--accent); color: var(--accent); }
+    #exp-live-btn.armed .orb { background: var(--accent); animation: cv-breathe 1.4s infinite; }
+    #exp-live-btn.on {
+      background: rgba(62, 207, 142, 0.14); border-color: var(--accent); color: var(--accent);
+    }
+    #exp-live-btn.on .orb { background: var(--accent); animation: cv-breathe 1s infinite; }
+    #exp-live-banner {
+      display: none; align-items: center; gap: 8px; margin: 0 0 8px;
+      padding: 8px 12px; border: 1px solid rgba(62, 207, 142, 0.4);
+      border-radius: 10px; background: rgba(62, 207, 142, 0.08);
+      color: var(--accent); font-size: 0.76rem; font-weight: 600;
+    }
+    #expanded.convo.live-on #exp-live-banner { display: flex; }
+    #exp-thread {
+      display: none; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+      overscroll-behavior: contain; padding: 4px 2px 10px;
+      flex-direction: column; gap: 8px;
+    }
+    #expanded.convo #exp-thread { display: flex; }
+    .cv-bubble {
+      max-width: 84%; border-radius: 14px; padding: 9px 12px;
+      font-size: 0.9rem; line-height: 1.45; word-break: break-word;
+    }
+    .cv-agent {
+      background: var(--surface); border: 1px solid var(--border);
+      align-self: flex-start; border-bottom-left-radius: 5px;
+    }
+    .cv-me {
+      background: #1f3d33; align-self: flex-end; border-bottom-right-radius: 5px;
+    }
+    .cv-dim { opacity: 0.72; font-size: 0.84rem; }
+    .cv-bubble .cv-meta {
+      display: flex; align-items: center; gap: 8px; margin-top: 6px;
+      color: var(--muted); font-size: 0.72rem;
+    }
+    .cv-play {
+      min-width: 30px; min-height: 30px; border-radius: 50%;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text); display: inline-flex; align-items: center; justify-content: center;
+    }
+    .cv-play .icon { width: 13px; height: 13px; }
+    .cv-play.playing { border-color: var(--speaking); color: var(--speaking); }
+    .cv-ack {
+      align-self: flex-end; display: flex; align-items: center; gap: 7px;
+      color: var(--muted); font-size: 0.78rem; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+    }
+    .cv-working {
+      align-self: flex-start; color: var(--muted); font-size: 0.84rem;
+      padding: 2px 4px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .cv-working .cv-hint { color: var(--idle); font-size: 0.72rem; }
+    .cv-dots i { animation: cv-breathe 1.4s infinite; font-style: normal; }
+    .cv-dots i:nth-child(2) { animation-delay: 0.2s; }
+    .cv-dots i:nth-child(3) { animation-delay: 0.4s; }
+    .cv-karaoke .w { opacity: 0.55; }
+    .cv-karaoke .w.past { opacity: 0.9; }
+    .cv-karaoke .w.on {
+      opacity: 1; color: var(--karaoke);
+      background: rgba(255, 229, 102, 0.16); border-radius: 3px;
+    }
     /* Transcript | Message tab toggle (§C3) */
     .exp-tabs {
       display: flex;
@@ -1033,6 +1135,10 @@
     <img id="exp-avatar" class="exp-avatar" alt="" />
     <div id="exp-name" class="exp-name"></div>
     <div id="exp-status" class="exp-status" hidden></div>
+    <div id="exp-convo-status" class="cv-status" hidden></div>
+    <button type="button" id="exp-live-btn"><span class="orb"></span><span class="lbl">Go live</span></button>
+    <div id="exp-live-banner"><span>●</span><span id="exp-live-banner-text">LIVE — intermediates use credits</span></div>
+    <div id="exp-thread"></div>
     <div class="exp-tabs" id="exp-tabs" role="tablist">
       <button type="button" class="exp-tab active" data-exptab="transcript">Transcript</button>
       <button type="button" class="exp-tab" data-exptab="message">Message</button>
@@ -1746,11 +1852,28 @@
   function renderExpandedChrome() {
     const ps = computePlayerState();
     const subject = playerSubject();
-    if (!subject) {
+    const cAgent = convoAgent();
+    if (!subject && !cAgent) {
       // Nothing to show — force-collapse.
       closeExpanded();
       return;
     }
+    if (cAgent) {
+      // Conversation view owns the whole sheet: header, thread, and reply box
+      // all come from cAgent — NEVER the playback subject, which may belong
+      // to a different session (opening A's chat while B's clip is loaded).
+      renderConvo(cAgent);
+      renderExpandedReply({ sessionId: cAgent.sessionId });
+      expStatus.hidden = true;
+      btnSpeed.hidden = false;
+      btnSpeed.disabled = false;
+      updateSpeedLabel();
+      renderPpButtons();
+      updatePlayerProgress();
+      return;
+    }
+    expanded.classList.remove("convo", "live-on");
+    expConvoStatus.hidden = true;
     // Mac-owned covers paused-on-Mac too — the device row must keep showing
     // Mac as the source (so "This phone" reads as a transfer), and stop/
     // restart stay available. Speaking animation is live-only.
@@ -1817,6 +1940,179 @@
     expReplyWrap.innerHTML = replyBoxHtml(agent, "exp");
   }
 
+  /* ============================================================
+     Conversation view + live mode (reply-capable agents)
+     ============================================================ */
+  const expConvoStatus = $("exp-convo-status");
+  const expLiveBtn = $("exp-live-btn");
+  const expLiveBannerText = $("exp-live-banner-text");
+  const expThread = $("exp-thread");
+  // Separate element for ack clips so they never clobber the main player.
+  const ackAudio = new Audio();
+  const REPLIES_KEY = "mobile_sent_replies";
+  let convoOverride = null; // sessionId opened from a card (no active playback)
+  let sentReplies = {};
+  try { sentReplies = JSON.parse(localStorage.getItem(REPLIES_KEY) || "{}") || {}; } catch {}
+  const ackEvents = {}; // sessionId → [{at}] — this page load only
+  const liveClipCounts = {}; // sessionId → live clips heard this turn
+  let lastAckAt = null;
+  let lastThreadSig = null;
+
+  function recordSentReply(sessionId, text) {
+    const list = sentReplies[sessionId] || (sentReplies[sessionId] = []);
+    list.push({ text: text.slice(0, 600), at: new Date().toISOString() });
+    if (list.length > 20) list.splice(0, list.length - 20);
+    try { localStorage.setItem(REPLIES_KEY, JSON.stringify(sentReplies)); } catch {}
+  }
+
+  // The agent whose conversation the sheet should show: an explicit card-open
+  // wins; otherwise the player subject when that session is reply-capable.
+  function convoAgent() {
+    const sid = convoOverride || playerSubject()?.sessionId;
+    if (!sid) return null;
+    const agent = agentForSession(sid);
+    return agent && isInjectable(agent) ? agent : null;
+  }
+
+  // Replay filenames start with an ISO-ish stamp (colons may be dashes).
+  function entryTsMs(e) {
+    const m = String(e.file || "").match(
+      /^(\d{4}-\d{2}-\d{2})T(\d{2})[-:](\d{2})[-:](\d{2})/
+    );
+    if (m) {
+      const t = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}`);
+      if (Number.isFinite(t)) return t;
+    }
+    const t = Date.parse(e.timestamp || "");
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  function buildThreadItems(agent) {
+    const sid = agent.sessionId;
+    const items = [];
+    for (const e of allReplayList) {
+      if (e.sessionId !== sid || e.kind === "ack" || !e.file) continue;
+      items.push({ t: entryTsMs(e), type: e.kind === "live" ? "live" : "agent", entry: e });
+    }
+    for (const r of sentReplies[sid] || []) {
+      items.push({ t: Date.parse(r.at) || 0, type: "me", text: r.text });
+    }
+    for (const a of ackEvents[sid] || []) {
+      items.push({ t: Date.parse(a.at) || 0, type: "ack" });
+    }
+    items.sort((a, b) => a.t - b.t);
+    return items.slice(-30);
+  }
+
+  function threadBubbleHtml(item, activeFile) {
+    if (item.type === "me") {
+      return `<div class="cv-bubble cv-me">${escapeHtml(item.text)}</div>`;
+    }
+    if (item.type === "ack") {
+      return `<div class="cv-ack">🔊 acknowledged</div>`;
+    }
+    const e = item.entry;
+    const dim = item.type === "live" ? " cv-dim" : "";
+    const isActive = activeFile && e.file === activeFile;
+    const text = e.spokenText || e.textPreview || "";
+    const body = isActive
+      ? `<span class="cv-karaoke" id="cv-active-karaoke">${escapeHtml(text)}</span>`
+      : escapeHtml(text.length > 400 ? text.slice(0, 400) + "…" : text);
+    const when = item.t ? fmtClock(item.t) : "";
+    const meta = isActive
+      ? `<div class="cv-meta"><span class="cv-play playing">${iconHtml("pause", "sm")}</span><span>speaking now</span></div>`
+      : `<div class="cv-meta"><button type="button" class="cv-play" data-cv-play="${escapeHtml(e.file)}">${iconHtml("play", "sm")}</button><span>${when}</span></div>`;
+    return `<div class="cv-bubble cv-agent${dim}">${body}${meta}</div>`;
+  }
+
+  function fmtClock(ms) {
+    try {
+      return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    } catch {
+      return "";
+    }
+  }
+
+  function renderConvo(agent) {
+    const liveOn = !!agent.live?.on;
+    const working = agent.state === "working";
+    expanded.classList.add("convo");
+    expanded.classList.toggle("live-on", liveOn);
+
+    // Header identity + status line.
+    const ps = computePlayerState();
+    const speakingHere =
+      ps.kind === "phone-replay"
+        ? ps.entry?.sessionId === agent.sessionId && !audio.paused && !audio.ended
+        : ps.kind === "mac-live" && ps.nowPlaying?.sessionId === agent.sessionId;
+    expAvatar.onerror = () => {
+      expAvatar.onerror = null;
+      expAvatar.src = avatarSrc("default", speakingHere ? "speaking" : "idle");
+    };
+    setImg(expAvatar, avatarSrc(avatarDir(agent), speakingHere ? "speaking" : "idle"));
+    expName.textContent = agent.label || agent.name;
+    expConvoStatus.hidden = false;
+    let dot = "idle";
+    let statusText = "idle";
+    if (liveOn) { dot = "live"; statusText = "LIVE — narrating as they work"; }
+    else if (speakingHere) { dot = "speaking"; statusText = "speaking"; }
+    else if (working) { dot = "working"; statusText = "working…"; }
+    else if (agent.state === "hand_raised") { dot = "speaking"; statusText = "update ready"; }
+    expConvoStatus.innerHTML = `<span class="dot ${dot}"></span>${escapeHtml(statusText)}`;
+
+    // LIVE button: off → armed (agent working, invite) → on.
+    expLiveBtn.classList.toggle("on", liveOn);
+    expLiveBtn.classList.toggle("armed", !liveOn && working);
+    expLiveBtn.querySelector(".lbl").textContent = liveOn ? "End live" : "Go live";
+    const n = liveClipCounts[agent.sessionId] || 0;
+    expLiveBannerText.textContent = `LIVE — intermediates use credits${n ? ` · ${n} clip${n === 1 ? "" : "s"} this turn` : ""}`;
+
+    // Thread (dirty-checked so the 80ms tick never rebuilds mid-karaoke).
+    const activeFile =
+      ps.kind === "phone-replay" && ps.entry?.sessionId === agent.sessionId && !isPhoneIdle()
+        ? ps.entry.file
+        : null;
+    const items = buildThreadItems(agent);
+    const hasActiveBubble = activeFile && items.some((i) => i.entry?.file === activeFile);
+    let html = items.map((i) => threadBubbleHtml(i, activeFile)).join("");
+    // A clip still streaming (not yet in the catalog) gets a synthetic bubble.
+    if (activeFile && !hasActiveBubble) {
+      const e = ps.entry;
+      const dim = snapshot.nowPlaying?.kind === "live" ? " cv-dim" : "";
+      html += `<div class="cv-bubble cv-agent${dim}"><span class="cv-karaoke" id="cv-active-karaoke">${escapeHtml(e.spokenText || e.textPreview || "")}</span><div class="cv-meta"><span class="cv-play playing">${iconHtml("pause", "sm")}</span><span>speaking now</span></div></div>`;
+    }
+    if (working) {
+      const tools = liveOn && agent.live?.toolCount ? `${agent.live.toolCount} tools so far` : "";
+      const hint = liveOn
+        ? tools
+        : "tap Go live to listen in while they work";
+      html += `<div class="cv-working"><div>${escapeHtml(agent.label || agent.name)} is working<span class="cv-dots"><i>.</i><i>.</i><i>.</i></span></div>${hint ? `<div class="cv-hint">${escapeHtml(hint)}</div>` : ""}</div>`;
+    }
+    const sig = `${agent.sessionId}|${liveOn}|${working}|${activeFile || ""}|${items.length}|${n}|${html.length}`;
+    if (sig !== lastThreadSig) {
+      lastThreadSig = sig;
+      const nearBottom =
+        expThread.scrollHeight - expThread.scrollTop - expThread.clientHeight < 80;
+      expThread.innerHTML = html;
+      if (nearBottom || activeFile) expThread.scrollTop = expThread.scrollHeight;
+    }
+  }
+
+  function handlePhoneAckFrame(ack) {
+    if (!ack || !ack.at || ack.at === lastAckAt) return;
+    lastAckAt = ack.at;
+    const list = ackEvents[ack.sessionId] || (ackEvents[ack.sessionId] = []);
+    list.push({ at: ack.at });
+    if (ack.ackFile) {
+      try {
+        ackAudio.src = `/phrase-audio/${ack.ackFile.split("/").map(encodeURIComponent).join("/")}`;
+        ackAudio.play().catch(() => {});
+      } catch { /* chip only */ }
+    }
+    lastThreadSig = null;
+    renderPlayer();
+  }
+
   function updatePlayerProgress() {
     if (macScrubbing) return; // drag preview owns the fill until release
     const ps = computePlayerState();
@@ -1843,6 +2139,21 @@
 
   function updateExpandedKaraoke() {
     if (!expanded.classList.contains("open")) return;
+    // Conversation view: karaoke lives inside the active thread bubble.
+    if (expanded.classList.contains("convo")) {
+      const el = document.getElementById("cv-active-karaoke");
+      const psc = computePlayerState();
+      if (el && psc.kind === "phone-replay") {
+        const e = psc.entry;
+        const elapsed = ((liveMode ? liveBaseSec : 0) + (audio.currentTime || 0)) * 1000;
+        el.innerHTML = karaokeFromAlignment(
+          e.spokenText || e.textPreview || "",
+          e.alignment,
+          elapsed
+        );
+      }
+      return;
+    }
     const ps = computePlayerState();
     if (ps.kind === "mac-live") {
       const np = ps.nowPlaying;
@@ -1865,14 +2176,17 @@
     renderExpandedChrome();
   }
 
-  function openExpanded() {
-    if (!playerSubject()) return;
+  function openExpanded(convoSessionId) {
+    if (convoSessionId) convoOverride = convoSessionId;
+    if (!playerSubject() && !convoAgent()) return;
     expanded.classList.add("open");
     expanded.setAttribute("aria-hidden", "false");
     renderExpandedChrome();
   }
   function closeExpanded() {
-    expanded.classList.remove("open");
+    convoOverride = null;
+    lastThreadSig = null;
+    expanded.classList.remove("open", "convo", "live-on");
     expanded.setAttribute("aria-hidden", "true");
   }
 
@@ -2525,7 +2839,12 @@
         // Reply affordance.
         let reply;
         if (injectable) {
-          reply = `<button type="button" class="ghost" data-reply-toggle="${escapeHtml(
+          const liveChip = agent.live?.on
+            ? `${iconHtml("smartphone", "sm")} LIVE`
+            : "Chat";
+          reply = `<button type="button" class="ghost${agent.live?.on ? " accent" : ""}" data-chat="${escapeHtml(
+            agent.sessionId
+          )}">${liveChip}</button><button type="button" class="ghost" data-reply-toggle="${escapeHtml(
             agent.sessionId
           )}">Reply</button>`;
         } else {
@@ -2613,10 +2932,16 @@
       toast("Reply too long");
       return;
     }
+    // Prime the ack element inside the tap gesture (before any await) so the
+    // "on it, boss" clip can autoplay when the server routes it here.
+    try { ackAudio.src = SILENT_WAV; ackAudio.play().catch(() => {}); } catch { /* noop */ }
     const r = await postAction({ type: "reply", sessionId, text });
     const status = r ? r.status || "ok" : "failed";
     if (status === "ok") {
       toast(`Reply sent to ${name}`);
+      recordSentReply(sessionId, text);
+      liveClipCounts[sessionId] = 0;
+      lastThreadSig = null;
       delete replyDrafts[sessionId];
       openReplySession = null;
       textarea.value = "";
@@ -3080,6 +3405,13 @@
       return;
     }
 
+    const chatEl = t.closest("[data-chat]");
+    if (chatEl) {
+      primeAudio();
+      openExpanded(chatEl.getAttribute("data-chat"));
+      return;
+    }
+
     const blocked = t.closest("[data-reply-blocked]");
     if (blocked) { toast("Not in team room — respawn from ＋ to enable"); return; }
 
@@ -3124,6 +3456,33 @@
   });
 
   // Expanded reply box (static wrapper).
+  // Conversation view: LIVE toggle + per-bubble play chips.
+  expLiveBtn.addEventListener("click", () => {
+    const agent = convoAgent();
+    if (!agent) return;
+    const on = !!agent.live?.on;
+    // Prime BOTH audio elements inside this gesture so live clips and acks
+    // can autoplay later without a second tap.
+    primeAudio();
+    try { ackAudio.src = SILENT_WAV; ackAudio.play().catch(() => {}); } catch { /* noop */ }
+    if (!on) liveClipCounts[agent.sessionId] = 0;
+    postAction({ type: "set_live", sessionId: agent.sessionId, on: !on }).then((r) => {
+      if (!r) toast("Couldn't toggle live");
+    });
+    toast(on ? "Live ended" : "Going live — intermediates will be spoken");
+  });
+  expThread.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const b = t.closest("[data-cv-play]");
+    if (!b) return;
+    const entry = allReplayList.find((e) => e.file === b.getAttribute("data-cv-play"));
+    if (entry) {
+      primeAudio();
+      playReplayEntry(entry, { gated: false });
+    }
+  });
+
   expReplyWrap.addEventListener("click", (ev) => {
     const t = ev.target;
     if (!(t instanceof HTMLElement)) return;
@@ -3561,12 +3920,17 @@
         // Live grant finalize (v2.3): same deal — the synthesisComplete
         // re-stamp keeps the key unchanged.
         checkLiveFinalize(next.nowPlaying);
+        // Reply ack routed to this phone (conversation view).
+        handlePhoneAckFrame(next.phoneAck);
         if (nextKey && nextKey !== prevKey) {
           lastNowPlayingKey = nextKey;
           refreshReplayList({ detectNew: true });
           // Grant-to-phone: play exactly replayFile when routed to the phone.
           // Fired once per new now-playing to avoid restart on repeat frames.
           const np = next.nowPlaying;
+          if (np?.kind === "live" && np.sessionId) {
+            liveClipCounts[np.sessionId] = (liveClipCounts[np.sessionId] || 0) + 1;
+          }
           if (isNowPlayingActive(np) && np.output === "phone" && np.replayFile) {
             maybePlayGrantToPhone(np);
           }
@@ -3587,6 +3951,8 @@
       if (charsRes.ok) charactersPayload = await charsRes.json();
     } catch { /* SSE fills in */ }
     lastNowPlayingKey = nowPlayingKey(snapshot.nowPlaying);
+    // Never replay a pre-load ack on boot.
+    lastAckAt = snapshot.phoneAck?.at || null;
     try { await refreshReplayList(); } catch { /* empty until later */ }
     render();
     // If we boot into an active phone-routed grant, pick it up.

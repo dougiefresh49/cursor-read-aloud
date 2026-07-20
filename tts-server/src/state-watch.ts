@@ -25,6 +25,13 @@ import { NOW_PLAYING_PATH } from "./audio.js";
 import { log } from "./logger.js";
 import { TEAM_MAP_PATH, teamSessionIds } from "./team-map.js";
 import { TRIAGE_PATH, readTriageFocus } from "./triage.js";
+import {
+  LIVE_SESSIONS_PATH,
+  PHONE_ACK_PATH,
+  loadLiveSessions,
+  readFreshPhoneAck,
+  type PhoneAck,
+} from "./live-mode.js";
 
 const HOLD_ROOM_PATH = join(TTS_DIR, ".hold-room.json");
 const PAUSED_FLAG_PATH = join(TTS_DIR, ".playback-paused");
@@ -44,6 +51,8 @@ export interface AgentView {
   queuedPreview: string | null;
   /** team_map.json presence only — no tmux probes on snapshot builds. */
   injectable: boolean;
+  /** Live mode (intermediate narration) — null when off. */
+  live: { on: boolean; toolCount: number; turnStartedAt: string | null } | null;
 }
 
 export interface PanelSnapshot {
@@ -53,6 +62,8 @@ export interface PanelSnapshot {
   triageFocus: string | null;
   // pause.sh's SIGSTOP flag — panel freezes the mouth and shows resume.
   paused: boolean;
+  // Fresh (<30s) reply-ack event for the phone; client keys on `at`.
+  phoneAck: PhoneAck | null;
 }
 
 interface StateFile {
@@ -161,6 +172,7 @@ export function buildSnapshot(): AgentView[] {
   const muted = new Set(loadMutedSessions());
   const teamIds = teamSessionIds();
   const nicknames = loadNicknames();
+  const liveMap = loadLiveSessions();
   const agents: AgentView[] = [];
 
   try {
@@ -199,6 +211,13 @@ export function buildSnapshot(): AgentView[] {
         isTeam: inTeam,
         queuedPreview: queuedPreviewFor(shortSession),
         injectable: inTeam,
+        live: liveMap[sessionId]?.on
+          ? {
+              on: true,
+              toolCount: liveMap[sessionId].toolCount ?? 0,
+              turnStartedAt: liveMap[sessionId].turnStartedAt ?? null,
+            }
+          : null,
       });
     }
   } catch (err: any) {
@@ -230,6 +249,7 @@ export function buildPanelSnapshot(): PanelSnapshot {
     roomHeld: isRoomHeld(),
     triageFocus: readTriageFocus(),
     paused: existsSync(PAUSED_FLAG_PATH),
+    phoneAck: readFreshPhoneAck(),
   };
 }
 
@@ -259,6 +279,8 @@ export function startStateWatch(): void {
         SESSION_VOICES_PATH,
         NICKNAMES_PATH,
         PAUSED_FLAG_PATH,
+        LIVE_SESSIONS_PATH,
+        PHONE_ACK_PATH,
       ].map((p) => basename(p))
     );
     const relevant = (path: string) =>

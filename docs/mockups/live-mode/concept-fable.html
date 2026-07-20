@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fable concept — conversation view + live mode</title>
+<style>
+  :root {
+    --bg: #0f1115; --surface: #1a1d24; --surface2: #242830; --border: #2e3340;
+    --text: #e8eaed; --muted: #9aa0a6; --working: #4a9eff; --hand: #e6a817;
+    --speaking: #3ecf8e; --idle: #6b7280; --danger: #ef4444; --karaoke: #ffe566;
+    --accent: #3ecf8e; --live: #ff5470;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #07080a; color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 24px 12px;
+  }
+  h1 { font-size: 1rem; font-weight: 600; color: var(--muted); margin: 0; }
+  .switcher { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .switcher button {
+    background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 8px 14px; font-size: 0.85rem; cursor: pointer;
+  }
+  .switcher button.active { color: var(--text); border-color: var(--accent); }
+  .phone {
+    width: 390px; height: 760px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 28px; overflow: hidden; display: flex; flex-direction: column;
+    position: relative;
+  }
+  .screen { display: none; flex-direction: column; height: 100%; }
+  .screen.active { display: flex; }
+
+  /* ── Header: agent identity strip ── */
+  .convo-head {
+    display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border); flex: 0 0 auto;
+  }
+  .avatar {
+    width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto;
+    background: radial-gradient(circle at 35% 30%, #6b4fa0, #2d2440);
+    display: grid; place-items: center; font-size: 1.3rem;
+    border: 2px solid var(--idle); position: relative;
+  }
+  .avatar.speaking { border-color: var(--speaking); }
+  .avatar.working { border-color: var(--working); }
+  .avatar.working::after {
+    content: ""; position: absolute; inset: -6px; border-radius: 50%;
+    border: 2px solid var(--working); opacity: 0.5; animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse { 0% { transform: scale(0.9); opacity: 0.6; } 100% { transform: scale(1.25); opacity: 0; } }
+  .who { flex: 1; min-width: 0; }
+  .who .name { font-weight: 700; font-size: 1.05rem; }
+  .who .status { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .who .status .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .dot.idle { background: var(--idle); } .dot.working { background: var(--working); }
+  .dot.speaking { background: var(--speaking); } .dot.live { background: var(--live); }
+  .closer { background: none; border: 0; color: var(--muted); font-size: 1.4rem; padding: 4px 8px; }
+
+  /* ── Live pill ── */
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 7px; border-radius: 999px;
+    padding: 8px 16px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .live-pill .ring { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .live-pill.on {
+    background: rgba(255, 84, 112, 0.12); border-color: var(--live); color: #ff8ba0;
+  }
+  .live-pill.on .ring { background: var(--live); animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+
+  /* ── Thread ── */
+  .thread { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .day-sep { text-align: center; color: var(--idle); font-size: 0.72rem; margin: 6px 0; }
+  .bubble { max-width: 82%; border-radius: 16px; padding: 10px 13px; font-size: 0.92rem; line-height: 1.45; }
+  .from-agent { background: var(--surface); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 6px; }
+  .from-me { background: #1f3d33; align-self: flex-end; border-bottom-right-radius: 6px; }
+  .bubble .meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 0.75rem; }
+  .playbtn {
+    width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); display: grid; place-items: center;
+    font-size: 0.7rem; cursor: pointer;
+  }
+  .playbtn.playing { border-color: var(--speaking); color: var(--speaking); }
+  .wave { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; }
+  .wave i { width: 3px; background: var(--speaking); border-radius: 2px; animation: eq 0.9s infinite ease-in-out; }
+  .wave i:nth-child(1) { height: 6px; } .wave i:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+  .wave i:nth-child(3) { height: 8px; animation-delay: 0.3s; } .wave i:nth-child(4) { height: 11px; animation-delay: 0.45s; }
+  @keyframes eq { 50% { transform: scaleY(0.4); } }
+  .karaoke b { background: rgba(255, 229, 102, 0.22); color: var(--karaoke); font-weight: 600; border-radius: 3px; }
+  .bubble.dim { opacity: 0.75; font-size: 0.86rem; }
+  .bubble.dim .tag { color: var(--working); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px; }
+  .ack {
+    align-self: flex-end; display: flex; align-items: center; gap: 8px;
+    color: var(--muted); font-size: 0.8rem; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px;
+  }
+  .working-row { align-self: flex-start; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.85rem; padding: 4px 2px; }
+  .working-row .dots i { animation: blink 1.4s infinite; }
+  .working-row .dots i:nth-child(2) { animation-delay: 0.2s; } .working-row .dots i:nth-child(3) { animation-delay: 0.4s; }
+  .tools-hint { color: var(--idle); font-size: 0.74rem; margin-top: 2px; }
+
+  /* ── Bottom: controls + reply ── */
+  .bottom { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 10px 14px calc(12px + 8px); display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+  .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .transport { display: flex; align-items: center; gap: 14px; }
+  .tbtn { background: none; border: 0; color: var(--text); font-size: 1.1rem; cursor: pointer; }
+  .tbtn.big { width: 42px; height: 42px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--border); display: grid; place-items: center; }
+  .tbtn.speed { font-size: 0.8rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; }
+  .reply-row { display: flex; align-items: center; gap: 8px; }
+  .reply-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 11px 16px; color: var(--muted); font-size: 0.9rem; }
+  .send { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #06281c; border: 0; font-size: 1rem; display: grid; place-items: center; }
+  .end-live {
+    align-self: center; background: rgba(255, 84, 112, 0.12); color: #ff8ba0;
+    border: 1px solid var(--live); border-radius: 999px; padding: 10px 22px;
+    font-size: 0.9rem; font-weight: 600;
+  }
+  .note { font-size: 0.72rem; color: var(--idle); text-align: center; }
+</style>
+</head>
+<body>
+<h1>Fable concept — thread + live mode (tap tabs to switch state)</h1>
+<div class="switcher">
+  <button class="active" data-s="a">A · Idle thread</button>
+  <button data-s="b">B · LIVE</button>
+  <button data-s="c">C · Working</button>
+  <button data-s="d">D · Final landed</button>
+</div>
+
+<div class="phone">
+
+  <!-- A: conversation view, idle -->
+  <div class="screen active" id="s-a">
+    <div class="convo-head">
+      <div class="avatar">🐢</div>
+      <div class="who">
+        <div class="name">Karai</div>
+        <div class="status"><span class="dot idle"></span>idle · agent-usage-bar</div>
+      </div>
+      <button class="live-pill"><span class="ring"></span>Go live</button>
+      <button class="closer">▾</button>
+    </div>
+    <div class="thread">
+      <div class="day-sep">earlier</div>
+      <div class="bubble from-me">Add a model dropdown to the picker</div>
+      <div class="bubble from-agent">
+        Model dropdown shipped — both pickers, allowlisted server-side, flows to claude --model.
+        <div class="meta"><button class="playbtn">▶</button> 0:41 · 10:12 PM</div>
+      </div>
+      <div class="bubble from-me">Nice. Can you also check the logs?</div>
+      <div class="bubble from-agent">
+        Found it — the tmux server was sitting in a deleted directory. Fixed team.sh and cleared the stale server.
+        <div class="meta"><button class="playbtn">▶</button> 1:12 · 10:31 PM</div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="controls-row">
+        <div class="transport">
+          <button class="tbtn">⏮</button>
+          <button class="tbtn big">▶</button>
+          <button class="tbtn">⏭</button>
+        </div>
+        <button class="tbtn speed">1.5×</button>
+      </div>
+      <div class="reply-row">
+        <div class="reply-input">Reply to Karai…</div>
+        <button class="send">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- B: live mode ON -->
+  <div class="screen" id="s-b">
+    <div class="convo-head">
+      <div class="avatar working">🐢</div>
+      <div class="who">
+        <div class="name">Karai</div>
+        <div class="status"><span class="dot live"></span>LIVE — speaking as she works</div>
+      </div>
+      <button class="live-pill on"><span class="ring"></span>LIVE</button>
+      <button class="closer">▾</button>
+    </div>
+    <div class="thread">
+      <div class="bubble from-me">Run the full verification and fix whatever breaks</div>
+      <div class="ack">🔊 “On it, boss.”</div>
+      <div class="bubble from-agent dim">
+        <span class="tag">progress</span>
+        Running the type checks first — tts-server is clean, checking the panel next.
+        <div class="meta">spoken · 11:02 PM</div>
+      </div>
+      <div class="bubble from-agent dim">
+        <span class="tag">progress</span>
+        <span class="karaoke">Panel fails on two <b>unused imports</b> — removing them and</span> re-running…
+        <div class="meta"><span class="wave"><i></i><i></i><i></i><i></i></span> speaking now</div>
+      </div>
+      <div class="working-row">
+        <span>tools running</span><span class="dots"><i>●</i><i>●</i><i>●</i></span>
+      </div>
+    </div>
+    <div class="bottom">
+      <button class="end-live">◼ End live</button>
+      <div class="reply-row">
+        <div class="reply-input">Reply to Karai…</div>
+        <button class="send">➤</button>
+      </div>
+      <div class="note">Live speaks progress updates as they happen — uses more credits while on</div>
+    </div>
+  </div>
+
+  <!-- C: working, live OFF -->
+  <div class="screen" id="s-c">
+    <div class="convo-head">
+      <div class="avatar working">🐢</div>
+      <div class="who">
+        <div class="name">Karai</div>
+        <div class="status"><span class="dot working"></span>working · 2 min</div>
+      </div>
+      <button class="live-pill"><span class="ring"></span>Go live</button>
+      <button class="closer">▾</button>
+    </div>
+    <div class="thread">
+      <div class="bubble from-agent">
+        Found it — the tmux server was sitting in a deleted directory. Fixed team.sh and cleared the stale server.
+        <div class="meta"><button class="playbtn">▶</button> 1:12 · 10:31 PM</div>
+      </div>
+      <div class="bubble from-me">Run the full verification and fix whatever breaks</div>
+      <div class="ack">🔊 “On it, boss.”</div>
+      <div class="working-row">
+        <div>
+          Karai is working<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+          <div class="tools-hint">4 tool runs · started 11:02 PM · tap Go live to listen in</div>
+        </div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="reply-row">
+        <div class="reply-input">Reply to Karai…</div>
+        <button class="send">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- D: final response landed -->
+  <div class="screen" id="s-d">
+    <div class="convo-head">
+      <div class="avatar speaking">🐢</div>
+      <div class="who">
+        <div class="name">Karai</div>
+        <div class="status"><span class="dot speaking"></span>speaking</div>
+      </div>
+      <button class="live-pill"><span class="ring"></span>Go live</button>
+      <button class="closer">▾</button>
+    </div>
+    <div class="thread">
+      <div class="bubble from-me">Run the full verification and fix whatever breaks</div>
+      <div class="ack">🔊 “On it, boss.”</div>
+      <div class="bubble from-agent">
+        <span class="karaoke">All checks pass now. <b>Both type checks are clean</b>,</span> the shell scripts lint, and I committed the fixes as two commits on main.
+        <div class="meta"><span class="wave"><i></i><i></i><i></i><i></i></span> 0:22 / 0:58 · now</div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="controls-row">
+        <div class="transport">
+          <button class="tbtn">⏮</button>
+          <button class="tbtn big">⏸</button>
+          <button class="tbtn">⏭</button>
+        </div>
+        <button class="tbtn speed">1.5×</button>
+      </div>
+      <div class="reply-row">
+        <div class="reply-input">Reply to Karai…</div>
+        <button class="send">➤</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll(".switcher button").forEach((b) => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".switcher button").forEach((x) => x.classList.toggle("active", x === b));
+      document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("active", s.id === "s-" + b.dataset.s));
+    });
+  });
+</script>
+</body>
+</html>

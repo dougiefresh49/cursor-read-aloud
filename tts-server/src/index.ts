@@ -1,5 +1,5 @@
 import { watch } from "chokidar";
-import { readFileSync, renameSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, readdirSync, renameSync, existsSync, mkdirSync } from "fs";
 import { basename, join } from "path";
 import {
   QUEUE_DIR,
@@ -26,6 +26,7 @@ import {
   playStreamBuffer,
   awaitPendingDrain,
   activePhoneGrantId,
+  isUnexpiredPhoneGrant,
   type ReplayMeta,
   type PlaybackContext,
 } from "./audio.js";
@@ -37,6 +38,8 @@ import {
   sessionStateAgeMs,
 } from "./state.js";
 import { reconcileSessionLineage } from "./session-lineage.js";
+import { isLiveSession } from "./live-mode.js";
+import { startLiveTail, stopLiveTail } from "./live-tail.js";
 import { maybeFireDeferredAnnounce } from "./announce.js";
 import { startHid, stopHid } from "./hid.js";
 import { startPanelWs, stopPanelWs } from "./panel-ws.js";
@@ -112,22 +115,28 @@ async function maybePlayVictoryLine(voiceId: string): Promise<void> {
   }
 }
 
+// Is a NEWER live-cc item for the same session already queued? Older
+// intermediates are stale narration — skipping them saves the synthesis call.
+function hasNewerLiveItem(name: string, sessionId: string): boolean {
+  const suffix = `-cc-${sessionId.slice(0, 12)}.json`;
+  try {
+    return readdirSync(QUEUE_DIR).some((f) => {
+      if (!f.endsWith(suffix) || f <= name) return false;
+      const item = parseQueueFile(join(QUEUE_DIR, f));
+      return item?.source === "live-cc";
+    });
+  } catch {
+    return false;
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 async function processQueueFile(
   filePath: string,
   auto = false
 ): Promise<void> {
   const name = basename(filePath);
-
-  // Playback mode gates the watcher's auto-play only — manual plays
-  // ("once" mode via Play Latest / menu clicks) always go through. The item
-  // stays in queue/ so it can be played manually later.
-  if (auto) {
-    const mode = effectivePlaybackMode();
-    if (mode !== "auto") {
-      log("server", `queued without auto-play (mode=${mode}): ${name}`);
-      return;
-    }
-  }
 
   if (!claimProcessing(name)) {
     log("server", `Already claimed by another process: ${name} — skip`);
@@ -144,6 +153,35 @@ async function processQueueFile(
 
     const config = loadConfig();
     const sessionId = item.conversation_id;
+    const isIntermediate = item.source === "live-cc";
+    // Live sessions auto-deliver everything to the phone — final responses
+    // included — regardless of playback mode (the owner opted in explicitly).
+    const liveSession = !!sessionId && isLiveSession(sessionId);
+
+    // Playback mode gates the watcher's auto-play only — manual plays
+    // ("once" mode via Play Latest / menu clicks) always go through. The item
+    // stays in queue/ so it can be played manually later.
+    if (auto && !liveSession) {
+      const mode = effectivePlaybackMode();
+      if (mode !== "auto") {
+        log("server", `queued without auto-play (mode=${mode}): ${name}`);
+        return;
+      }
+    }
+
+    if (isIntermediate) {
+      // Live toggled off after enqueue — retire without spending a cent.
+      if (!liveSession) {
+        log("server", `live off — dropping intermediate ${name}`);
+        moveToPlayed(filePath);
+        return;
+      }
+      if (sessionId && hasNewerLiveItem(name, sessionId)) {
+        log("server", `stale intermediate (newer live clip queued): ${name}`);
+        moveToPlayed(filePath);
+        return;
+      }
+    }
 
     if (sessionId) {
       const muted = loadMutedSessions();
@@ -153,7 +191,49 @@ async function processQueueFile(
       }
     }
 
+    // Live clips stream to the phone back-to-back; the previous clip's
+    // playback window must close before the next stamp, or the client would
+    // cut it off mid-word. Wait BEFORE taking the stream lock so an idle wait
+    // never blocks Mac playback for other sessions.
+    if (liveSession) {
+      const t0 = Date.now();
+      while (isUnexpiredPhoneGrant() && Date.now() - t0 < 90_000) {
+        await sleep(1000);
+      }
+    }
+
     await waitForLock();
+
+    // The user may have ended live during the waits above — re-read the flag
+    // before anything billable. Stale intermediates retire free; a final for
+    // a session that left live reverts to normal playback-mode gating.
+    const stillLive = !!sessionId && isLiveSession(sessionId);
+    if (isIntermediate && !stillLive) {
+      log("server", `live ended mid-wait — dropping intermediate ${name}`);
+      moveToPlayed(filePath);
+      return;
+    }
+    if (liveSession && !stillLive && auto && effectivePlaybackMode() !== "auto") {
+      log("server", `live ended mid-wait — leaving ${name} queued for grant`);
+      return;
+    }
+    if (stillLive) {
+      if (isUnexpiredPhoneGrant()) {
+        if (isIntermediate) {
+          log("server", `phone window never closed — dropping intermediate ${name}`);
+          moveToPlayed(filePath);
+        } else {
+          log("server", `phone window never closed — leaving final queued: ${name}`);
+        }
+        return;
+      }
+      // Fresh staleness check after the waits — newer clips may have landed.
+      if (isIntermediate && sessionId && hasNewerLiveItem(name, sessionId)) {
+        log("server", `stale after window wait: ${name}`);
+        moveToPlayed(filePath);
+        return;
+      }
+    }
 
     // The file may have been processed and moved while we waited on the lock.
     if (!existsSync(filePath)) {
@@ -205,15 +285,20 @@ async function processQueueFile(
       processed = `In ${prefix}... ${processed}`;
     }
 
-    processed = truncateForTTS(
-      processed,
-      geminiResult ? TTS_CHAR_CAP : FALLBACK_CHAR_CAP
-    );
+    // Intermediates are narration, not essays — cap them well below a full
+    // response so a chatty turn can't bill 4,800 chars per progress beat.
+    const cap = isIntermediate
+      ? Math.min(1000, geminiResult ? TTS_CHAR_CAP : FALLBACK_CHAR_CAP)
+      : geminiResult
+        ? TTS_CHAR_CAP
+        : FALLBACK_CHAR_CAP;
+    processed = truncateForTTS(processed, cap);
 
     log("server", `Character: ${character?.name ?? "default"}, voice: ${voiceId}`);
 
     const replayMeta: ReplayMeta = {
       source: "queue",
+      ...(isIntermediate ? { kind: "live" as const } : {}),
       sessionId: sessionId,
       sessionName: item.thread_title || lookupSessionName(sessionId || "") || undefined,
       character: character?.name,
@@ -229,7 +314,12 @@ async function processQueueFile(
 
     // Grant-to-phone: same synthesis stream, sink "none" (buffer → replay only).
     // CR_OUTPUT is set by dispatchPanelAction → grant_floor.sh → play_node.sh.
-    const sink = process.env.CR_OUTPUT === "phone" ? ("none" as const) : ("ffplay" as const);
+    // Live sessions always stream to the phone — that's the whole feature.
+    // (stillLive, not the pre-wait value: routing follows the current flag.)
+    const sink =
+      process.env.CR_OUTPUT === "phone" || stillLive
+        ? ("none" as const)
+        : ("ffplay" as const);
 
     // Phone sink retires the queue item as soon as the replay is durably
     // saved — a crash during the playback-window wait must not leave the
@@ -387,6 +477,9 @@ if (loadConfig().mobile_port > 0) startMobileHttp();
 // Experimental meeting auto-hold — inert unless dnd_auto.
 if (loadConfig().dnd_auto) startDnd();
 
+// Live-mode transcript tailer — no-op while live_sessions.json is empty.
+startLiveTail();
+
 // Room-card reaper: Terminal.app quit can skip SessionEnd. Two consecutive
 // dead-pid passes required; cards younger than 2 min are never reaped (team.sh
 // bind can take ~90s). Side-effectful — NOT inside buildSnapshot().
@@ -461,6 +554,7 @@ process.on("SIGTERM", () => {
   clearInterval(reaperTimer);
   watcher.close();
   sessionsWatcher.close();
+  stopLiveTail();
   stopDnd();
   stopHid();
   stopMobileHttp();
@@ -474,6 +568,7 @@ process.on("SIGINT", () => {
   clearInterval(reaperTimer);
   watcher.close();
   sessionsWatcher.close();
+  stopLiveTail();
   stopDnd();
   stopHid();
   stopMobileHttp();

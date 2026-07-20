@@ -15,6 +15,7 @@ import { knownDirs, isResumableSession, listResumable } from "./session-catalog.
 import { HID_ACTIONS, captureNextPress, isCaptureReady } from "./hid.js";
 import { buildShortcutsPayload } from "./shortcuts.js";
 import { isUnexpiredPhoneGrant, supersedePhoneGrant, startPlayReplay } from "./audio.js";
+import { setLiveSession, markPendingPhoneAck, clearPendingPhoneAck } from "./live-mode.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHARACTERS_PATH = join(__dirname, "characters.json");
@@ -80,6 +81,7 @@ export type PanelMessage =
   | { type: "known_dirs" }
   | { type: "spawn_session"; dir: string; persona: string; remoteControl?: boolean; skipPermissions?: boolean; model?: string }
   | { type: "resume_session"; sessionId: string; dir: string; persona: string; remoteControl?: boolean; skipPermissions?: boolean; model?: string }
+  | { type: "set_live"; sessionId: string; on: boolean }
   | { type: "set_voice"; sessionId: string; character: string }
   | { type: "set_nickname"; sessionId: string; label: string }
   | { type: "hold_room" }
@@ -654,6 +656,16 @@ export function validatePanelMessage(raw: unknown): PanelMessage | "bad_message"
         persona: msg.persona,
         ...spawnFlags(msg),
       };
+    case "set_live":
+      if (
+        keys.length !== 3 ||
+        typeof msg.sessionId !== "string" ||
+        !msg.sessionId.trim() ||
+        typeof msg.on !== "boolean"
+      ) {
+        return "bad_message";
+      }
+      return { type: "set_live", sessionId: msg.sessionId, on: msg.on };
     case "set_voice":
       if (
         keys.length !== 3 ||
@@ -955,6 +967,10 @@ export function handleReplyAction(raw: unknown): { status: ReplyStatus } | null 
   if (!text || text.length > 4000) return null;
   if (!sessionInSnapshot(msg.sessionId)) return null;
 
+  // Marker BEFORE injecting: the UserPromptSubmit hook can fire while the
+  // inject script is still returning — a late marker would miss the ack (and
+  // linger to claim a wrong later prompt). Cleared below if injection fails.
+  markPendingPhoneAck(msg.sessionId);
   // Flag MUST be first — inject_prompt.sh only accepts --now as $1.
   const status = runScriptSyncStatus("inject_prompt.sh", [
     "--now",
@@ -962,6 +978,7 @@ export function handleReplyAction(raw: unknown): { status: ReplyStatus } | null 
     text,
   ]);
   if (status === 0) return { status: "ok" };
+  clearPendingPhoneAck();
   if (status === 3) return { status: "not_in_team" };
   return { status: "failed" };
 }
@@ -1022,10 +1039,19 @@ const MOBILE_ACTION_TYPES = new Set([
   "status_say",
   "spawn_session",
   "resume_session",
+  "set_live",
 ]);
 
 function dispatch(msg: PanelMessage): void {
   switch (msg.type) {
+    case "set_live":
+      // Live narration only makes sense for a session we can converse with.
+      if (msg.on && !isTeamSession(msg.sessionId)) {
+        emitNotice("Live mode needs a team session");
+        return;
+      }
+      setLiveSession(msg.sessionId, msg.on);
+      return;
     case "grant":
       runScript(
         "grant_floor.sh",

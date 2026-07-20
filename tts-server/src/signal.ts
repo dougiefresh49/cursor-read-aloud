@@ -1,8 +1,11 @@
+import { basename } from "path";
 import { loadEnv, lookupSessionName, loadMutedSessions } from "./config.js";
 import { resolveVoiceId } from "./elevenlabs.js";
-import { handleDynamicResponse, handleAskUser } from "./dynamic-response.js";
+import { handleDynamicResponse, handleAskUser, getCharacter } from "./dynamic-response.js";
 import { replayLast, stopCurrent } from "./audio.js";
 import { purgeSessionQueue, setSessionState } from "./state.js";
+import { consumePendingPhoneAck, writePhoneAck } from "./live-mode.js";
+import { getPhrasesForVoice } from "./phrases.js";
 import { log } from "./logger.js";
 
 loadEnv();
@@ -34,6 +37,22 @@ if (action === "prompt-submitted") {
   if (sessionId) {
     purgeSessionQueue(sessionId);
     setSessionState(sessionId, "working");
+  }
+  // Reply came from the phone (handleReplyAction marker): route the ack there
+  // as a free cached clip — never Mac ffplay, never paid synthesis.
+  if (sessionId && consumePendingPhoneAck(sessionId)) {
+    const files = voiceId ? getPhrasesForVoice(voiceId, "ack") : [];
+    const pick = files.length
+      ? files[Math.floor(Math.random() * files.length)]
+      : null;
+    writePhoneAck({
+      sessionId,
+      ackFile: pick && voiceId ? `${voiceId}/${basename(pick)}` : null,
+      character: (voiceId && getCharacter(voiceId)?.name) || null,
+      at: new Date().toISOString(),
+    });
+    log("signal", `UserPromptSubmit → phone ack (${pick ? basename(pick) : "chip only"})`);
+    process.exit(0);
   }
   log("signal", `UserPromptSubmit → dynamic response (voice=${voiceId}, prompt=${textArg.slice(0, 60)})`);
   const played = await handleDynamicResponse(voiceId, textArg, sessionId || undefined, sessionName);
