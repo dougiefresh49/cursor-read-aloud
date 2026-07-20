@@ -1242,6 +1242,15 @@ button,
   accent-color: var(--accent, #4ade80);
 }
 
+.picker-flag select {
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 12px;
+}
+
 .picker-tab {
   flex: 1;
   height: 24px;

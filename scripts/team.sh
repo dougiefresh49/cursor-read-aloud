@@ -101,6 +101,7 @@ PY
 # Launch flags — picker checkboxes arrive as env (default on when unset):
 #   CR_SKIP_PERMISSIONS=0 → prompt for permissions instead of skipping
 #   CR_REMOTE_CONTROL=0   → no Claude-mobile-app remote control channel
+#   CR_MODEL=<alias>      → pass --model (empty/unset = CLI default)
 CLAUDE_ARGS=()
 if [ "${CR_SKIP_PERMISSIONS:-1}" = "1" ]; then
     CLAUDE_ARGS+=(--dangerously-skip-permissions)
@@ -108,6 +109,15 @@ fi
 if [ "${CR_REMOTE_CONTROL:-1}" = "1" ]; then
     CLAUDE_ARGS+=(--remote-control "$TMUX_NAME")
 fi
+if [ -n "${CR_MODEL:-}" ]; then
+    CLAUDE_ARGS+=(--model "$CR_MODEL")
+fi
+# The tmux server inherits our cwd at first launch, and ours is the synced
+# tts-server dir — which setup.sh rm-rf's on every re-install, leaving the
+# server in an unlinked cwd where Bun-based claude dies on getcwd (ENOENT).
+# Start from HOME so the server is born somewhere that can't be deleted.
+cd "$HOME"
+
 if [ -n "$RESUME_ID" ]; then
     log "Launching $TMUX_NAME in $PROJECT_DIR (resume $RESUME_ID; flags: ${CLAUDE_ARGS[*]:-none})"
     tmux new-session -d -s "$TMUX_NAME" -c "$PROJECT_DIR" \

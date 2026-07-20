@@ -787,6 +787,15 @@
       height: 18px;
       accent-color: var(--accent);
     }
+    .picker-flag select {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font-size: 0.9rem;
+    }
     #picker-personas {
       display: flex;
       flex-wrap: wrap;
@@ -1066,6 +1075,15 @@
     <div class="picker-flags">
       <label class="picker-flag"><input type="checkbox" id="flag-skip-perms" checked> Skip permission prompts</label>
       <label class="picker-flag"><input type="checkbox" id="flag-remote" checked> Remote control (Claude app)</label>
+      <label class="picker-flag">Model
+        <select id="flag-model">
+          <option value="">Default</option>
+          <option value="fable">Fable</option>
+          <option value="opus">Opus</option>
+          <option value="sonnet">Sonnet</option>
+          <option value="haiku">Haiku</option>
+        </select>
+      </label>
     </div>
     <div id="picker-list"></div>
   </div>
@@ -3464,11 +3482,19 @@
       try { localStorage.setItem(key, box.checked ? "1" : "0"); } catch {}
     });
   }
+  const modelSel = $("flag-model");
+  modelSel.value = localStorage.getItem("mobile_flag_model") || "";
+  if (modelSel.selectedIndex < 0) modelSel.value = "";
+  modelSel.addEventListener("change", () => {
+    try { localStorage.setItem("mobile_flag_model", modelSel.value); } catch {}
+  });
   function launchFlags() {
-    return {
+    const flags = {
       skipPermissions: $("flag-skip-perms").checked,
       remoteControl: $("flag-remote").checked,
     };
+    if (modelSel.value) flags.model = modelSel.value;
+    return flags;
   }
 
   // Picker wiring.

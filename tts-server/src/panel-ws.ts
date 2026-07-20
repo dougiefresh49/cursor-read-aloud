@@ -78,8 +78,8 @@ export type PanelMessage =
   | { type: "pause" }
   | { type: "list_resumable" }
   | { type: "known_dirs" }
-  | { type: "spawn_session"; dir: string; persona: string; remoteControl?: boolean; skipPermissions?: boolean }
-  | { type: "resume_session"; sessionId: string; dir: string; persona: string; remoteControl?: boolean; skipPermissions?: boolean }
+  | { type: "spawn_session"; dir: string; persona: string; remoteControl?: boolean; skipPermissions?: boolean; model?: string }
+  | { type: "resume_session"; sessionId: string; dir: string; persona: string; remoteControl?: boolean; skipPermissions?: boolean; model?: string }
   | { type: "set_voice"; sessionId: string; character: string }
   | { type: "set_nickname"; sessionId: string; label: string }
   | { type: "hold_room" }
@@ -618,7 +618,7 @@ export function validatePanelMessage(raw: unknown): PanelMessage | "bad_message"
     case "spawn_session":
       if (
         keys.length < 3 ||
-        keys.length > 5 ||
+        keys.length > 6 ||
         typeof msg.dir !== "string" ||
         !msg.dir.trim() ||
         typeof msg.persona !== "string" ||
@@ -636,7 +636,7 @@ export function validatePanelMessage(raw: unknown): PanelMessage | "bad_message"
     case "resume_session":
       if (
         keys.length < 4 ||
-        keys.length > 6 ||
+        keys.length > 7 ||
         typeof msg.sessionId !== "string" ||
         !msg.sessionId.trim() ||
         typeof msg.dir !== "string" ||
@@ -843,12 +843,17 @@ function personaBusyReason(persona: string): string | null {
 export interface SpawnOpts {
   remoteControl?: boolean;
   skipPermissions?: boolean;
+  model?: string;
 }
+
+/** Aliases accepted by `claude --model`; absent/empty = CLI default. */
+const SPAWN_MODELS = new Set(["fable", "opus", "sonnet", "haiku"]);
 
 function validSpawnFlags(msg: Record<string, unknown>): boolean {
   return (
     (msg.remoteControl === undefined || typeof msg.remoteControl === "boolean") &&
-    (msg.skipPermissions === undefined || typeof msg.skipPermissions === "boolean")
+    (msg.skipPermissions === undefined || typeof msg.skipPermissions === "boolean") &&
+    (msg.model === undefined || (typeof msg.model === "string" && SPAWN_MODELS.has(msg.model)))
   );
 }
 
@@ -856,6 +861,7 @@ function spawnFlags(msg: Record<string, unknown>): SpawnOpts {
   return {
     ...(typeof msg.remoteControl === "boolean" ? { remoteControl: msg.remoteControl } : {}),
     ...(typeof msg.skipPermissions === "boolean" ? { skipPermissions: msg.skipPermissions } : {}),
+    ...(typeof msg.model === "string" ? { model: msg.model } : {}),
   };
 }
 
@@ -873,6 +879,7 @@ function spawnTeam(
   const extraEnv = {
     CR_REMOTE_CONTROL: opts.remoteControl === false ? "0" : "1",
     CR_SKIP_PERMISSIONS: opts.skipPermissions === false ? "0" : "1",
+    CR_MODEL: opts.model ?? "",
   };
   runScriptCaptured("team.sh", args, (code, stderrTail) => {
     pendingPersonas.delete(key);

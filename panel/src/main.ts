@@ -1809,6 +1809,14 @@ function renderPicker() {
       <div class="picker-flags no-drag">
         <label class="picker-flag"><input type="checkbox" data-spawn-flag="${SPAWN_FLAG_SKIP_PERMS}" ${spawnFlagChecked(SPAWN_FLAG_SKIP_PERMS) ? "checked" : ""}> Skip permission prompts</label>
         <label class="picker-flag"><input type="checkbox" data-spawn-flag="${SPAWN_FLAG_REMOTE}" ${spawnFlagChecked(SPAWN_FLAG_REMOTE) ? "checked" : ""}> Remote control (Claude app)</label>
+        <label class="picker-flag">Model
+          <select data-spawn-model>
+            ${SPAWN_MODEL_CHOICES.map(
+              ([value, label]) =>
+                `<option value="${value}" ${spawnModel() === value ? "selected" : ""}>${label}</option>`
+            ).join("")}
+          </select>
+        </label>
       </div>
       ${body}
     </main>
@@ -2027,6 +2035,14 @@ function bindBrowseRow() {
 // Picker launch-flag toggles — persisted, default both on.
 const SPAWN_FLAG_SKIP_PERMS = "panel_flag_skip_perms";
 const SPAWN_FLAG_REMOTE = "panel_flag_remote";
+const SPAWN_FLAG_MODEL = "panel_flag_model";
+const SPAWN_MODEL_CHOICES: [string, string][] = [
+  ["", "Default"],
+  ["fable", "Fable"],
+  ["opus", "Opus"],
+  ["sonnet", "Sonnet"],
+  ["haiku", "Haiku"],
+];
 
 function spawnFlagChecked(key: string): boolean {
   try {
@@ -2036,11 +2052,27 @@ function spawnFlagChecked(key: string): boolean {
   }
 }
 
+function spawnModel(): string {
+  try {
+    const value = localStorage.getItem(SPAWN_FLAG_MODEL) ?? "";
+    return SPAWN_MODEL_CHOICES.some(([v]) => v === value) ? value : "";
+  } catch {
+    return "";
+  }
+}
+
 function bindSpawnFlags() {
   app.querySelectorAll<HTMLInputElement>("[data-spawn-flag]").forEach((box) => {
     box.addEventListener("change", () => {
       try {
         localStorage.setItem(box.dataset.spawnFlag!, box.checked ? "1" : "0");
+      } catch { /* ignore */ }
+    });
+  });
+  app.querySelectorAll<HTMLSelectElement>("[data-spawn-model]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      try {
+        localStorage.setItem(SPAWN_FLAG_MODEL, sel.value);
       } catch { /* ignore */ }
     });
   });
@@ -2060,6 +2092,7 @@ function bindPickerChips() {
       const flags = {
         skipPermissions: spawnFlagChecked(SPAWN_FLAG_SKIP_PERMS),
         remoteControl: spawnFlagChecked(SPAWN_FLAG_REMOTE),
+        ...(spawnModel() ? { model: spawnModel() } : {}),
       };
       if (sessionId) {
         send({ type: "resume_session", sessionId, dir, persona, ...flags });
