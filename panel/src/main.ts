@@ -175,6 +175,15 @@ function isPhoneFrame(np: NowPlaying | null): boolean {
   const age = Date.now() - startedAt;
   return Number.isFinite(age) && age >= 0 && age <= PHONE_FRAME_STALE_MS;
 }
+
+// The chip's staleness belt is wall-clock-based but renders only happen on
+// snapshot pushes — a quiet room would freeze a visible chip forever. Expire
+// it locally: re-render when a shown chip's frame has gone stale.
+setInterval(() => {
+  if (document.querySelector(".chip.phone") && !isPhoneFrame(nowPlaying)) {
+    render();
+  }
+}, 15_000);
 let dockHoverSessionId: string | null = null;
 let dockHoverHideTimer: ReturnType<typeof setTimeout> | null = null;
 let swapOpenSessionId: string | null = null;
