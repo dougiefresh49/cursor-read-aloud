@@ -560,89 +560,160 @@
       color: var(--accent);
       margin-bottom: 12px;
     }
-    /* ── Conversation view (reply-capable agents) ── */
-    #expanded.convo { overflow: hidden; }
-    #expanded.convo .exp-tabs,
-    #expanded.convo .exp-content,
-    #expanded.convo .progress-row,
-    #expanded.convo .exp-device-row,
-    #expanded.convo #btn-prev,
-    #expanded.convo #btn-next,
-    #expanded.convo #btn-stop { display: none; }
-    #expanded.convo .exp-avatar {
-      width: 64px; height: 64px; border-radius: 16px; margin: 2px auto 6px;
-      box-shadow: none;
+    /* ── Conversation view v2 (chat + call) ── */
+    #expanded.convo {
+      overflow: hidden;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
     }
-    #expanded.convo .exp-name { font-size: 1.05rem; margin-bottom: 2px; }
-    #expanded.convo .player-controls { margin: 6px 0 2px; }
-    /* Edge glow while LIVE (gpt concept): breathing top strip. */
+    #expanded.convo > .exp-grab { display: none; }
+    #expanded.convo > .exp-collapse,
+    #expanded.convo > .exp-avatar,
+    #expanded.convo > .exp-name,
+    #expanded.convo > .exp-status,
+    #expanded.convo > .exp-tabs,
+    #expanded.convo > .exp-content,
+    #expanded.convo > .progress-row,
+    #expanded.convo > .player-controls,
+    #expanded.convo > .exp-device-row,
+    #expanded.convo > #exp-reply-wrap { display: none !important; }
+    /* Edge glow while LIVE */
     #expanded.convo.live-on::before {
-      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-      background: var(--accent); z-index: 5; animation: cv-breathe 1.5s ease-in-out infinite;
+      content: ""; position: absolute; top: 0; left: 16%; right: 16%; height: 2px;
+      background: var(--accent); z-index: 30; pointer-events: none;
+      box-shadow: 0 0 18px 3px rgba(62, 207, 142, 0.5);
+      animation: cv-breathe 1.6s ease-in-out infinite;
     }
-    @keyframes cv-breathe { 50% { opacity: 0.3; } }
-    .cv-status {
-      text-align: center; font-size: 0.8rem; color: var(--muted);
-      margin-bottom: 8px; min-height: 1.1em;
+    #expanded.convo.live-on {
+      border-color: #2a5a42;
+      box-shadow: inset 0 0 0 1px rgba(62, 207, 142, 0.28);
     }
-    .cv-status .dot {
-      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-      margin-right: 6px; vertical-align: 1px; background: var(--idle);
+    @keyframes cv-breathe { 50% { opacity: 0.28; } }
+
+    #cv-stage {
+      display: none; flex: 1; min-height: 0; position: relative; overflow: hidden;
+      background: #12151c;
     }
-    .cv-status .dot.working { background: var(--working); }
-    .cv-status .dot.speaking { background: var(--speaking); }
-    .cv-status .dot.live { background: var(--accent); animation: cv-breathe 1.2s infinite; }
+    #expanded.convo #cv-stage { display: block; }
+    .cv-panel {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      will-change: transform;
+    }
+    .cv-panel-chat { transform: translateX(0); z-index: 2; }
+    .cv-panel-call { transform: translateX(100%); z-index: 1; }
+    #expanded.show-call .cv-panel-chat { transform: translateX(-100%); }
+    #expanded.show-call .cv-panel-call { transform: translateX(0); }
+
+    /* Live pin — mid-live chat only, one slim row */
+    .cv-live-pin {
+      display: none; align-items: center; gap: 8px; flex-shrink: 0;
+      padding: 6px 12px; padding-top: calc(6px + env(safe-area-inset-top, 0px));
+      border-bottom: 1px solid #1e3a2a; background: #0e1612;
+    }
+    #expanded.live-on:not(.show-call) .cv-live-pin { display: flex; }
+    .cv-live-pin .back-call {
+      min-height: 32px; min-width: 0; padding: 0 10px; border-radius: 999px;
+      border: 1px solid #2a4a38; background: #151c18; color: #a8d4b8;
+      font-size: 0.72rem; font-weight: 650;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .cv-live-pin .back-call .icon { width: 14px; height: 14px; }
+    .cv-live-pin .pin-name {
+      font-size: 0.72rem; font-weight: 650; color: #c8ffe0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+    }
+    .cv-live-pin .pin-timer {
+      font-size: 0.7rem; color: #8fbf9e; font-variant-numeric: tabular-nums; font-weight: 600;
+    }
+    .cv-live-pin .spacer { flex: 1; }
+    .cv-live-pin .hang {
+      min-height: 32px; min-width: 0; padding: 0 12px; border-radius: 999px;
+      border: 1px solid #5a3030; background: #2a1818; color: #fca5a5;
+      font-size: 0.72rem; font-weight: 650;
+    }
+
+    /* Compact chat header (~56px) */
+    .cv-chat-header {
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+      height: 56px; padding: 0 12px;
+      border-bottom: 1px solid var(--border); background: #12151acc;
+    }
+    #expanded.live-on:not(.show-call) .cv-chat-header { display: none; }
+    .cv-chat-av {
+      width: 40px; height: 40px; border-radius: 11px; object-fit: cover;
+      background: var(--surface2); flex-shrink: 0;
+    }
+    .cv-who { flex: 1; min-width: 0; }
+    .cv-who .name {
+      font-size: 1rem; font-weight: 700; letter-spacing: -0.02em; margin: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cv-who .sub {
+      font-size: 0.7rem; color: var(--muted); font-weight: 550; margin-top: 1px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .cv-who .sub .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--idle); flex-shrink: 0;
+    }
+    .cv-who .sub .dot.ready { background: var(--accent); }
+    .cv-who .sub .dot.working { background: var(--working); }
+    .cv-who .sub .dot.live { background: var(--accent); animation: cv-breathe 1.2s infinite; }
     #exp-live-btn {
-      display: none; align-items: center; gap: 7px; margin: 0 auto 8px;
-      border-radius: 999px; padding: 9px 18px; font-size: 0.85rem; font-weight: 700;
-      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      display: none; align-items: center; gap: 6px; flex-shrink: 0;
+      min-height: 36px; min-width: 0; padding: 0 12px 0 10px; border-radius: 999px;
+      border: 1px solid #3a5a42; background: #151c18; color: #a8d4b8;
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
     }
-    #expanded.convo #exp-live-btn { display: inline-flex; }
+    #expanded.convo:not(.live-on) #exp-live-btn { display: inline-flex; }
     #exp-live-btn .orb {
-      width: 9px; height: 9px; border-radius: 50%; background: var(--muted);
+      width: 7px; height: 7px; border-radius: 50%; background: #3a5a42;
     }
-    #exp-live-btn.armed { border-color: var(--accent); color: var(--accent); }
-    #exp-live-btn.armed .orb { background: var(--accent); animation: cv-breathe 1.4s infinite; }
-    #exp-live-btn.on {
-      background: rgba(62, 207, 142, 0.14); border-color: var(--accent); color: var(--accent);
+    #exp-live-btn.armed {
+      background: #163528; border-color: var(--accent); color: #c8ffe0;
+      box-shadow: 0 0 14px rgba(62, 207, 142, 0.22);
     }
-    #exp-live-btn.on .orb { background: var(--accent); animation: cv-breathe 1s infinite; }
-    #exp-live-banner {
-      display: none; align-items: center; gap: 8px; margin: 0 0 8px;
-      padding: 8px 12px; border: 1px solid rgba(62, 207, 142, 0.4);
-      border-radius: 10px; background: rgba(62, 207, 142, 0.08);
-      color: var(--accent); font-size: 0.76rem; font-weight: 600;
+    #exp-live-btn.armed .orb {
+      background: var(--accent); box-shadow: 0 0 6px var(--accent);
+      animation: cv-breathe 1.2s infinite;
     }
-    #expanded.convo.live-on #exp-live-banner { display: flex; }
+    .cv-collapse {
+      width: 34px; height: 38px; min-width: 34px; min-height: 38px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: none; background: transparent; color: var(--muted); padding: 0; flex-shrink: 0;
+    }
+    .cv-collapse .icon { width: 22px; height: 22px; }
+
     #exp-thread {
-      display: none; flex: 1 1 auto; min-height: 0; overflow-y: auto;
-      overscroll-behavior: contain; padding: 4px 2px 10px;
-      flex-direction: column; gap: 8px;
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+      padding: 12px 14px 8px; display: flex; flex-direction: column; gap: 9px;
     }
-    #expanded.convo #exp-thread { display: flex; }
     .cv-bubble {
-      max-width: 84%; border-radius: 14px; padding: 9px 12px;
+      max-width: 86%; border-radius: 14px; padding: 9px 12px;
       font-size: 0.9rem; line-height: 1.45; word-break: break-word;
+      border: 1px solid var(--border);
     }
     .cv-agent {
-      background: var(--surface); border: 1px solid var(--border);
-      align-self: flex-start; border-bottom-left-radius: 5px;
+      background: var(--surface); align-self: flex-start; border-bottom-left-radius: 5px;
     }
     .cv-me {
-      background: #1f3d33; align-self: flex-end; border-bottom-right-radius: 5px;
+      background: #1f3d33; border-color: transparent;
+      align-self: flex-end; border-bottom-right-radius: 5px;
     }
     .cv-dim { opacity: 0.72; font-size: 0.84rem; }
     .cv-bubble .cv-meta {
-      display: flex; align-items: center; gap: 8px; margin-top: 6px;
+      display: flex; align-items: center; gap: 8px; margin-top: 7px;
       color: var(--muted); font-size: 0.72rem;
     }
     .cv-play {
-      min-width: 30px; min-height: 30px; border-radius: 50%;
-      border: 1px solid var(--border); background: var(--surface2);
-      color: var(--text); display: inline-flex; align-items: center; justify-content: center;
+      min-width: 28px; min-height: 28px; padding: 3px 9px 3px 6px; border-radius: 999px;
+      border: 1px solid #3a5a42; background: #2a3a2e; color: #d4ffe4;
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.68rem; font-weight: 650;
     }
-    .cv-play .icon { width: 13px; height: 13px; }
-    .cv-play.playing { border-color: var(--speaking); color: var(--speaking); }
+    .cv-play .icon { width: 12px; height: 12px; }
     .cv-ack {
       align-self: flex-end; display: flex; align-items: center; gap: 7px;
       color: var(--muted); font-size: 0.78rem; background: var(--surface);
@@ -656,11 +727,176 @@
     .cv-dots i { animation: cv-breathe 1.4s infinite; font-style: normal; }
     .cv-dots i:nth-child(2) { animation-delay: 0.2s; }
     .cv-dots i:nth-child(3) { animation-delay: 0.4s; }
-    .cv-karaoke .w { opacity: 0.55; }
-    .cv-karaoke .w.past { opacity: 0.9; }
-    .cv-karaoke .w.on {
-      opacity: 1; color: var(--karaoke);
-      background: rgba(255, 229, 102, 0.16); border-radius: 3px;
+
+    /* B1 playback strip — hidden unless playing */
+    .cv-playback-strip {
+      display: none; align-items: center; gap: 10px; flex-shrink: 0;
+      margin: 0 12px 8px; padding: 8px 10px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .cv-playback-strip.show { display: flex; }
+    .cv-playback-strip .pp {
+      width: 32px; height: 32px; min-width: 32px; min-height: 32px;
+      border-radius: 50%; border: none; padding: 0;
+      background: var(--accent); color: #0d1a12;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .cv-playback-strip .pp .icon { width: 14px; height: 14px; }
+    .cv-playback-strip .karaoke-line {
+      flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+      font-size: 0.78rem; line-height: 1.35; color: var(--muted);
+      scrollbar-width: none; -ms-overflow-style: none;
+    }
+    .cv-playback-strip .karaoke-line::-webkit-scrollbar { display: none; }
+    .cv-playback-strip .karaoke-line .w { color: var(--muted); }
+    .cv-playback-strip .karaoke-line .w.past { color: var(--text); }
+    .cv-playback-strip .karaoke-line .w.on {
+      color: var(--karaoke); font-weight: 650;
+    }
+    .cv-playback-strip .stop {
+      width: 32px; height: 32px; min-width: 32px; min-height: 32px;
+      border-radius: 50%; border: 1px solid var(--border); padding: 0;
+      background: transparent; color: var(--muted);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .cv-playback-strip .stop .icon { width: 16px; height: 16px; }
+
+    /* In-shell composer (gpt) */
+    .cv-composer {
+      flex-shrink: 0; border-top: 1px solid var(--border);
+      padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+      background: #12151a;
+    }
+    .cv-compose-shell {
+      display: flex; align-items: flex-end; gap: 5px;
+      padding: 4px 4px 4px 12px; border: 1px solid var(--border);
+      border-radius: 18px; background: var(--surface);
+    }
+    .cv-compose-shell textarea {
+      flex: 1; height: 34px; min-height: 34px; max-height: 88px; resize: none;
+      border: 0; outline: 0; padding: 8px 0; background: transparent;
+      color: var(--text); font-size: 0.88rem; font-family: inherit; line-height: 18px;
+    }
+    .cv-compose-shell textarea::placeholder { color: #727982; }
+    .cv-compose-shell .send {
+      width: 34px; height: 34px; min-width: 34px; min-height: 34px;
+      border: 0; border-radius: 50%; padding: 0;
+      background: var(--accent); color: #092016;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .cv-compose-shell .send .icon { width: 16px; height: 16px; }
+
+    /* ===== Call view ===== */
+    .cv-call {
+      flex: 1; display: flex; flex-direction: column; min-height: 0;
+      background: radial-gradient(ellipse at 50% 28%, #1a2420 0%, #12151c 55%);
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+    .cv-call-top {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 14px 16px 0; flex-shrink: 0; gap: 10px;
+    }
+    .cv-name-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px 6px 6px; border-radius: 999px;
+      background: rgba(26, 29, 36, 0.85); border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+    }
+    .cv-name-chip img {
+      width: 26px; height: 26px; border-radius: 7px; object-fit: cover; background: #2a3440;
+    }
+    .cv-name-chip strong { font-size: 0.85rem; font-weight: 700; }
+    .cv-name-chip .credits {
+      font-size: 0.65rem; font-weight: 650; color: #8fbf9e;
+      padding: 2px 7px; border-radius: 999px; background: #163528;
+      border: 1px solid #2a4a38; margin-left: 2px;
+    }
+    .cv-presence {
+      width: 120px; height: 120px; border-radius: 28px; margin-top: 14px;
+      object-fit: cover; background: linear-gradient(145deg, #2a3440, #1a222c 55%, #3a2a48);
+      box-shadow:
+        0 0 0 3px #12151c,
+        0 0 0 5px rgba(62, 207, 142, 0.45),
+        0 12px 40px rgba(0, 0, 0, 0.35);
+      animation: cv-presence-pulse 2.4s ease-in-out infinite;
+    }
+    .cv-presence.working-ring {
+      box-shadow:
+        0 0 0 3px #12151c,
+        0 0 0 5px rgba(74, 158, 255, 0.5),
+        0 12px 40px rgba(0, 0, 0, 0.35);
+      animation: none;
+    }
+    .cv-presence.final-ring {
+      box-shadow:
+        0 0 0 3px #12151c,
+        0 0 0 5px rgba(62, 207, 142, 0.7),
+        0 12px 40px rgba(62, 207, 142, 0.15);
+      animation: none;
+    }
+    @keyframes cv-presence-pulse {
+      0%, 100% { box-shadow: 0 0 0 3px #12151c, 0 0 0 5px rgba(62, 207, 142, 0.35), 0 12px 40px rgba(0, 0, 0, 0.35); }
+      50% { box-shadow: 0 0 0 3px #12151c, 0 0 0 7px rgba(62, 207, 142, 0.55), 0 12px 40px rgba(0, 0, 0, 0.35); }
+    }
+    .cv-call-body {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 12px 22px; min-height: 0;
+    }
+    .cv-info-card {
+      width: 100%; max-width: 320px; border-radius: 18px;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 16px 16px 14px;
+    }
+    .cv-info-card .tag {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+    }
+    .cv-info-card .tag.speaking { color: var(--accent); }
+    .cv-info-card .tag.final { color: #8fbf9e; }
+    .cv-info-card .tag.working { color: #9ec5ff; }
+    .cv-info-card .tag.done { color: #8fbf9e; }
+    .cv-info-card .body {
+      font-size: 0.95rem; line-height: 1.5; color: var(--text); word-break: break-word;
+    }
+    .cv-info-card .body.dim { color: var(--muted); }
+    .cv-info-card .speaking-words .w { color: var(--muted); }
+    .cv-info-card .speaking-words .w.past { color: var(--text); }
+    .cv-info-card .speaking-words .w.on { color: var(--karaoke); font-weight: 650; }
+    .cv-info-card .activity-row {
+      display: flex; align-items: center; gap: 8px; color: #9ec5ff; font-size: 0.88rem;
+    }
+    .cv-info-card .tool-count {
+      margin-top: 8px; font-size: 0.72rem; color: var(--muted);
+    }
+    .cv-call-dock {
+      flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 28px calc(18px + env(safe-area-inset-bottom, 0px)); gap: 16px;
+    }
+    .cv-call-dock .end {
+      width: 56px; height: 56px; min-width: 56px; min-height: 56px;
+      border-radius: 50%; border: none; padding: 0;
+      background: var(--danger); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 16px rgba(239, 68, 68, 0.35);
+    }
+    .cv-call-dock .end .icon { width: 24px; height: 24px; }
+    .cv-call-dock .timer-block { text-align: center; flex: 1; }
+    .cv-call-dock .timer-block .t {
+      font-size: 0.95rem; font-weight: 650; font-variant-numeric: tabular-nums;
+      color: var(--text); letter-spacing: 0.02em;
+    }
+    .cv-call-dock .timer-block .hint {
+      font-size: 0.65rem; color: var(--muted); margin-top: 2px;
+    }
+    .cv-call-dock .msg {
+      width: 56px; height: 56px; min-width: 56px; min-height: 56px;
+      border-radius: 50%; border: 1px solid var(--border); padding: 0;
+      background: var(--surface2); color: var(--text);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .cv-call-dock .msg .icon { width: 22px; height: 22px; }
+    @media (prefers-reduced-motion: reduce) {
+      .cv-panel { transition: none !important; }
     }
     /* Transcript | Message tab toggle (§C3) */
     .exp-tabs {
@@ -1065,6 +1301,10 @@
       <symbol id="i-more-vertical" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></symbol>
       <symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+      <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-phone-off" viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.06-1.06a2 2 0 0 1 2.11-.45l2.07.82a2 2 0 0 1 1.32 1.91V19a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 3h3.09a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/></symbol>
     </defs>
   </svg>
 
@@ -1135,10 +1375,69 @@
     <img id="exp-avatar" class="exp-avatar" alt="" />
     <div id="exp-name" class="exp-name"></div>
     <div id="exp-status" class="exp-status" hidden></div>
-    <div id="exp-convo-status" class="cv-status" hidden></div>
-    <button type="button" id="exp-live-btn"><span class="orb"></span><span class="lbl">Go live</span></button>
-    <div id="exp-live-banner"><span>●</span><span id="exp-live-banner-text">LIVE — intermediates use credits</span></div>
-    <div id="exp-thread"></div>
+
+    <!-- Convo v2: chat + call sliding panels (injectable agents only) -->
+    <div id="cv-stage">
+      <div class="cv-panel cv-panel-chat" id="cv-panel-chat">
+        <div class="cv-live-pin" id="cv-live-pin">
+          <button type="button" class="back-call" id="cv-back-call" aria-label="Back to call">
+            <svg class="icon"><use href="#i-chevron-left"/></svg> Call
+          </button>
+          <span class="pin-name" id="cv-pin-name"></span>
+          <span class="pin-timer" id="cv-pin-timer">0:00</span>
+          <span class="spacer"></span>
+          <button type="button" class="hang" id="cv-pin-end">End</button>
+        </div>
+        <header class="cv-chat-header">
+          <img id="cv-chat-av" class="cv-chat-av" alt="" />
+          <div class="cv-who">
+            <div class="name" id="cv-chat-name"></div>
+            <div class="sub"><span class="dot" id="cv-chat-dot"></span><span id="cv-chat-status"></span></div>
+          </div>
+          <button type="button" id="exp-live-btn"><span class="orb"></span><span class="lbl">Go live</span></button>
+          <button type="button" class="cv-collapse" id="cv-collapse" aria-label="Collapse"><svg class="icon"><use href="#i-chevron-down"/></svg></button>
+        </header>
+        <div id="exp-thread"></div>
+        <div class="cv-playback-strip" id="cv-playback-strip">
+          <button type="button" class="pp" id="cv-strip-pp" aria-label="Play or pause"><svg class="icon filled"><use href="#i-pause"/></svg></button>
+          <div class="karaoke-line" id="cv-strip-karaoke"></div>
+          <button type="button" class="stop" id="cv-strip-stop" aria-label="Stop"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <footer class="cv-composer" id="cv-composer">
+          <div class="cv-compose-shell">
+            <textarea id="cv-reply-input" rows="1" aria-label="Reply" placeholder="Reply…"></textarea>
+            <button type="button" class="send" id="cv-reply-send" aria-label="Send"><svg class="icon"><use href="#i-send"/></svg></button>
+          </div>
+        </footer>
+      </div>
+      <div class="cv-panel cv-panel-call" id="cv-panel-call">
+        <div class="cv-call">
+          <div class="cv-call-top">
+            <div class="cv-name-chip">
+              <img id="cv-call-chip-av" alt="" />
+              <strong id="cv-call-chip-name"></strong>
+              <span class="credits" id="cv-call-credits">live · 0 clips</span>
+            </div>
+            <img id="cv-presence" class="cv-presence" alt="" />
+          </div>
+          <div class="cv-call-body">
+            <div class="cv-info-card" id="cv-info-card" hidden>
+              <div class="tag" id="cv-card-tag"></div>
+              <div class="body" id="cv-card-body"></div>
+            </div>
+          </div>
+          <div class="cv-call-dock">
+            <button type="button" class="end" id="cv-end-live" aria-label="End live"><svg class="icon"><use href="#i-phone-off"/></svg></button>
+            <div class="timer-block">
+              <div class="t" id="cv-call-timer">0:00</div>
+              <div class="hint">End live stops audio</div>
+            </div>
+            <button type="button" class="msg" id="cv-send-text" aria-label="Send a text"><svg class="icon"><use href="#i-message"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="exp-tabs" id="exp-tabs" role="tablist">
       <button type="button" class="exp-tab active" data-exptab="transcript">Transcript</button>
       <button type="button" class="exp-tab" data-exptab="message">Message</button>
@@ -1863,17 +2162,11 @@
       // all come from cAgent — NEVER the playback subject, which may belong
       // to a different session (opening A's chat while B's clip is loaded).
       renderConvo(cAgent);
-      renderExpandedReply({ sessionId: cAgent.sessionId });
       expStatus.hidden = true;
-      btnSpeed.hidden = false;
-      btnSpeed.disabled = false;
-      updateSpeedLabel();
-      renderPpButtons();
-      updatePlayerProgress();
       return;
     }
-    expanded.classList.remove("convo", "live-on");
-    expConvoStatus.hidden = true;
+    expanded.classList.remove("convo", "live-on", "show-call");
+    callViewOpen = false;
     // Mac-owned covers paused-on-Mac too — the device row must keep showing
     // Mac as the source (so "This phone" reads as a transfer), and stop/
     // restart stay available. Speaking animation is live-only.
@@ -1941,29 +2234,38 @@
   }
 
   /* ============================================================
-     Conversation view + live mode (reply-capable agents)
+     Conversation view + live mode v2 (reply-capable agents)
      ============================================================ */
-  const expConvoStatus = $("exp-convo-status");
   const expLiveBtn = $("exp-live-btn");
-  const expLiveBannerText = $("exp-live-banner-text");
   const expThread = $("exp-thread");
+  const cvChatAv = $("cv-chat-av");
+  const cvChatName = $("cv-chat-name");
+  const cvChatDot = $("cv-chat-dot");
+  const cvChatStatus = $("cv-chat-status");
+  const cvPlaybackStrip = $("cv-playback-strip");
+  const cvStripPp = $("cv-strip-pp");
+  const cvStripKaraoke = $("cv-strip-karaoke");
+  const cvReplyInput = $("cv-reply-input");
+  const cvPresence = $("cv-presence");
+  const cvInfoCard = $("cv-info-card");
+  const cvCardTag = $("cv-card-tag");
+  const cvCardBody = $("cv-card-body");
+  const cvCallTimer = $("cv-call-timer");
+  const cvPinTimer = $("cv-pin-timer");
+  const cvCallCredits = $("cv-call-credits");
   // Separate element for ack clips so they never clobber the main player.
   const ackAudio = new Audio();
-  const REPLIES_KEY = "mobile_sent_replies";
   let convoOverride = null; // sessionId opened from a card (no active playback)
-  let sentReplies = {};
-  try { sentReplies = JSON.parse(localStorage.getItem(REPLIES_KEY) || "{}") || {}; } catch {}
   const ackEvents = {}; // sessionId → [{at}] — this page load only
   const liveClipCounts = {}; // sessionId → live clips heard this turn
+  const threadCache = {}; // sessionId → { items, fetchedAt }
   let lastAckAt = null;
   let lastThreadSig = null;
-
-  function recordSentReply(sessionId, text) {
-    const list = sentReplies[sessionId] || (sentReplies[sessionId] = []);
-    list.push({ text: text.slice(0, 600), at: new Date().toISOString() });
-    if (list.length > 20) list.splice(0, list.length - 20);
-    try { localStorage.setItem(REPLIES_KEY, JSON.stringify(sentReplies)); } catch {}
-  }
+  let lastCardSig = null;
+  let callViewOpen = false; // true = call panel on top while live
+  let liveStartedAt = null; // Date.now() when live began this session
+  let lastComposerSession = null;
+  let threadFetchGen = 0;
 
   // The agent whose conversation the sheet should show: an explicit card-open
   // wins; otherwise the player subject when that session is reply-capable.
@@ -1974,63 +2276,217 @@
     return agent && isInjectable(agent) ? agent : null;
   }
 
-  // Replay filenames start with an ISO-ish stamp (colons may be dashes).
-  function entryTsMs(e) {
-    const m = String(e.file || "").match(
-      /^(\d{4}-\d{2}-\d{2})T(\d{2})[-:](\d{2})[-:](\d{2})/
-    );
-    if (m) {
-      const t = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}`);
-      if (Number.isFinite(t)) return t;
-    }
-    const t = Date.parse(e.timestamp || "");
-    return Number.isFinite(t) ? t : 0;
+  function normalizeWs(s) {
+    return String(s || "").replace(/\s+/g, " ").trim();
   }
 
-  function buildThreadItems(agent) {
-    const sid = agent.sessionId;
-    const items = [];
+  async function fetchThread(sessionId) {
+    const gen = ++threadFetchGen;
+    try {
+      const r = await fetch(`/thread/${encodeURIComponent(sessionId)}?limit=40`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (gen !== threadFetchGen) return;
+      threadCache[sessionId] = {
+        items: Array.isArray(data.items) ? data.items : [],
+        fetchedAt: Date.now(),
+      };
+      lastThreadSig = null;
+      if (expanded.classList.contains("open") && convoAgent()?.sessionId === sessionId) {
+        renderConvo(convoAgent());
+      }
+    } catch { /* endpoint may not be up yet during parallel build */ }
+  }
+
+  function ensureThread(sessionId) {
+    if (!threadCache[sessionId]) fetchThread(sessionId);
+  }
+
+  function findReplayForFinal(sessionId, text) {
+    const prefix = normalizeWs(text).slice(0, 200);
+    if (!prefix) return null;
+    let best = null;
     for (const e of allReplayList) {
-      if (e.sessionId !== sid || e.kind === "ack" || !e.file) continue;
-      items.push({ t: entryTsMs(e), type: e.kind === "live" ? "live" : "agent", entry: e });
+      if (e.sessionId !== sessionId || e.kind === "ack" || e.kind === "live" || !e.file) continue;
+      const raw = normalizeWs(e.rawText || "");
+      if (raw.startsWith(prefix)) best = e; // newest wins (list is chrono ascending)
     }
-    for (const r of sentReplies[sid] || []) {
-      items.push({ t: Date.parse(r.at) || 0, type: "me", text: r.text });
-    }
-    for (const a of ackEvents[sid] || []) {
-      items.push({ t: Date.parse(a.at) || 0, type: "ack" });
-    }
-    items.sort((a, b) => a.t - b.t);
-    return items.slice(-30);
+    return best;
   }
 
-  function threadBubbleHtml(item, activeFile) {
-    if (item.type === "me") {
-      return `<div class="cv-bubble cv-me">${escapeHtml(item.text)}</div>`;
+  function lastFinalText(sessionId) {
+    const items = threadCache[sessionId]?.items || [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.role === "agent" && it.final) return it.text || "";
     }
-    if (item.type === "ack") {
+    return "";
+  }
+
+  function speakingOnPhone(agent) {
+    const ps = computePlayerState();
+    if (ps.kind !== "phone-replay") return false;
+    if (ps.entry?.sessionId !== agent.sessionId) return false;
+    if (!audio.src || audio.ended) return false;
+    return !audio.paused; // actively audible
+  }
+
+  // Strip stays up while a clip is loaded for this session (playing or paused).
+  function stripActiveFor(agent) {
+    const ps = computePlayerState();
+    if (ps.kind !== "phone-replay") return false;
+    if (ps.entry?.sessionId !== agent.sessionId) return false;
+    return !!(audio.src && !audio.ended && phoneMeta);
+  }
+
+  function finalPendingOnPhone(agent) {
+    const np = snapshot.nowPlaying;
+    if (!np || np.sessionId !== agent.sessionId) return false;
+    if (np.kind === "live") return false;
+    if (np.output !== "phone") return false;
+    if (!isNowPlayingActive(np)) return false;
+    // Active final grant that hasn't started audible playback yet.
+    if (speakingOnPhone(agent) && !audio.paused && !audio.ended) return false;
+    return phoneLoading || phonePendingTap || isPhoneIdle() || audio.paused;
+  }
+
+  function fmtLiveElapsed() {
+    if (!liveStartedAt) return "0:00";
+    const sec = Math.max(0, Math.floor((Date.now() - liveStartedAt) / 1000));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function threadBubbleHtml(item, agent, liveOn) {
+    // _ack first — ack events ride with role:"user" for sort order only.
+    if (item._ack) {
       return `<div class="cv-ack">🔊 acknowledged</div>`;
     }
-    const e = item.entry;
-    const dim = item.type === "live" ? " cv-dim" : "";
-    const isActive = activeFile && e.file === activeFile;
-    const text = e.spokenText || e.textPreview || "";
-    const body = isActive
-      ? `<span class="cv-karaoke" id="cv-active-karaoke">${escapeHtml(text)}</span>`
-      : escapeHtml(text.length > 400 ? text.slice(0, 400) + "…" : text);
-    const when = item.t ? fmtClock(item.t) : "";
-    const meta = isActive
-      ? `<div class="cv-meta"><span class="cv-play playing">${iconHtml("pause", "sm")}</span><span>speaking now</span></div>`
-      : `<div class="cv-meta"><button type="button" class="cv-play" data-cv-play="${escapeHtml(e.file)}">${iconHtml("play", "sm")}</button><span>${when}</span></div>`;
+    if (item.role === "user") {
+      return `<div class="cv-bubble cv-me">${escapeHtml(item.text || "")}</div>`;
+    }
+    const text = item.text || "";
+    const dim = item.final ? "" : " cv-dim";
+    const body = escapeHtml(text.length > 400 ? text.slice(0, 400) + "…" : text);
+    let meta = "";
+    if (!liveOn && item.final) {
+      const replay = findReplayForFinal(agent.sessionId, text);
+      if (replay) {
+        meta = `<div class="cv-meta"><button type="button" class="cv-play" data-cv-play="${escapeHtml(replay.file)}">${iconHtml("play", "sm")} Play</button></div>`;
+      }
+    }
     return `<div class="cv-bubble cv-agent${dim}">${body}${meta}</div>`;
   }
 
-  function fmtClock(ms) {
-    try {
-      return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    } catch {
-      return "";
+  function autoGrowComposer(ta) {
+    if (!ta) return;
+    ta.style.height = "34px";
+    ta.style.height = Math.min(ta.scrollHeight, 88) + "px";
+  }
+
+  function renderComposer(agent) {
+    const sid = agent.sessionId;
+    // Wispr-Flow-stable: never rebuild the field while same session owns it.
+    if (lastComposerSession === sid && cvReplyInput.isConnected) {
+      cvReplyInput.placeholder = `Reply to ${agent.label || agent.name}…`;
+      return;
     }
+    lastComposerSession = sid;
+    cvReplyInput.value = replyDrafts[sid] || "";
+    cvReplyInput.placeholder = `Reply to ${agent.label || agent.name}…`;
+    cvReplyInput.setAttribute("data-reply-for", sid);
+    autoGrowComposer(cvReplyInput);
+  }
+
+  function renderPlaybackStrip(agent) {
+    const active = stripActiveFor(agent);
+    cvPlaybackStrip.classList.toggle("show", active);
+    if (!active) {
+      cvStripKaraoke.textContent = "";
+      return;
+    }
+    const paused = audio.paused;
+    cvStripPp.innerHTML = paused
+      ? `<svg class="icon filled"><use href="#i-play"/></svg>`
+      : `<svg class="icon filled"><use href="#i-pause"/></svg>`;
+    cvStripPp.setAttribute("aria-label", paused ? "Play" : "Pause");
+    updateStripKaraoke();
+  }
+
+  function updateStripKaraoke() {
+    if (!cvPlaybackStrip.classList.contains("show")) return;
+    const ps = computePlayerState();
+    if (ps.kind !== "phone-replay") return;
+    const e = ps.entry;
+    const elapsed = ((liveMode ? liveBaseSec : 0) + (audio.currentTime || 0)) * 1000;
+    cvStripKaraoke.innerHTML = karaokeFromAlignment(
+      e.spokenText || e.textPreview || "",
+      e.alignment,
+      elapsed
+    );
+    const on = cvStripKaraoke.querySelector(".w.on");
+    if (on) {
+      try { on.scrollIntoView({ inline: "center", block: "nearest" }); } catch { /* noop */ }
+    }
+  }
+
+  function renderCallCard(agent, liveOn) {
+    if (!liveOn) {
+      cvInfoCard.hidden = true;
+      lastCardSig = null;
+      return;
+    }
+    const speaking = speakingOnPhone(agent);
+    const pending = !speaking && finalPendingOnPhone(agent);
+    const working = !speaking && !pending && agent.state === "working";
+    const activity = agent.live?.lastActivity;
+    const tools = agent.live?.toolCount || 0;
+    let mode;
+    let tag;
+    let tagCls;
+    let bodyHtml;
+    let dim = false;
+
+    if (speaking) {
+      mode = "speaking";
+      const isLiveClip = snapshot.nowPlaying?.kind === "live";
+      tag = isLiveClip ? "Speaking" : "Final";
+      tagCls = "speaking";
+      dim = isLiveClip;
+      bodyHtml = `<div class="speaking-words" id="cv-call-karaoke"></div>`;
+    } else if (pending) {
+      mode = "final-pending";
+      tag = "Final";
+      tagCls = "final";
+      const text = snapshot.nowPlaying?.text || lastFinalText(agent.sessionId) || "…";
+      bodyHtml = `${escapeHtml(text)}<div class="tool-count">auto-playing…</div>`;
+    } else if (working) {
+      mode = "working";
+      tag = "Working";
+      tagCls = "working";
+      const label = activity?.label || "working…";
+      bodyHtml = `<div class="activity-row"><span>${escapeHtml(label)}</span><span class="cv-dots"><i>.</i><i>.</i><i>.</i></span></div>`;
+      if (tools) bodyHtml += `<div class="tool-count">${tools} tool${tools === 1 ? "" : "s"} so far</div>`;
+    } else {
+      mode = "idle";
+      tag = "Done";
+      tagCls = "done";
+      const text = lastFinalText(agent.sessionId);
+      bodyHtml = text ? escapeHtml(text) : `<span style="color:var(--muted)">Listening…</span>`;
+    }
+
+    const sig = `${mode}|${tag}|${tools}|${activity?.label || ""}|${(snapshot.nowPlaying?.text || "").slice(0, 40)}`;
+    if (sig !== lastCardSig) {
+      lastCardSig = sig;
+      cvInfoCard.hidden = false;
+      cvCardTag.textContent = tag;
+      cvCardTag.className = `tag ${tagCls}`;
+      cvCardBody.className = `body${dim ? " dim" : ""}`;
+      cvCardBody.innerHTML = bodyHtml;
+    }
+    cvPresence.classList.toggle("working-ring", mode === "working");
+    cvPresence.classList.toggle("final-ring", mode === "final-pending" || (mode === "idle" && !!lastFinalText(agent.sessionId)));
   }
 
   function renderConvo(agent) {
@@ -2038,64 +2494,114 @@
     const working = agent.state === "working";
     expanded.classList.add("convo");
     expanded.classList.toggle("live-on", liveOn);
+    // Call is the base surface while live; chat overlays when callViewOpen is false.
+    if (!liveOn) callViewOpen = false;
+    expanded.classList.toggle("show-call", liveOn && callViewOpen);
 
-    // Header identity + status line.
-    const ps = computePlayerState();
-    const speakingHere =
-      ps.kind === "phone-replay"
-        ? ps.entry?.sessionId === agent.sessionId && !audio.paused && !audio.ended
-        : ps.kind === "mac-live" && ps.nowPlaying?.sessionId === agent.sessionId;
-    expAvatar.onerror = () => {
-      expAvatar.onerror = null;
-      expAvatar.src = avatarSrc("default", speakingHere ? "speaking" : "idle");
-    };
-    setImg(expAvatar, avatarSrc(avatarDir(agent), speakingHere ? "speaking" : "idle"));
-    expName.textContent = agent.label || agent.name;
-    expConvoStatus.hidden = false;
-    let dot = "idle";
-    let statusText = "idle";
-    if (liveOn) { dot = "live"; statusText = "LIVE — narrating as they work"; }
-    else if (speakingHere) { dot = "speaking"; statusText = "speaking"; }
+    if (liveOn && !liveStartedAt) liveStartedAt = Date.now();
+    if (!liveOn) liveStartedAt = null;
+
+    const speakingHere = speakingOnPhone(agent);
+    const frame = speakingHere ? "speaking" : "idle";
+    const avSrc = avatarSrc(avatarDir(agent), frame);
+    const name = agent.label || agent.name;
+
+    cvChatAv.onerror = () => { cvChatAv.onerror = null; cvChatAv.src = avatarSrc("default", frame); };
+    setImg(cvChatAv, avSrc);
+    cvChatName.textContent = name;
+
+    let dot = "ready";
+    let statusText = agent.state === "hand_raised" ? "update ready" : "ready";
+    if (liveOn) { dot = "live"; statusText = "live · call continues"; }
+    else if (speakingHere) { dot = "ready"; statusText = "speaking"; }
     else if (working) { dot = "working"; statusText = "working…"; }
-    else if (agent.state === "hand_raised") { dot = "speaking"; statusText = "update ready"; }
-    expConvoStatus.innerHTML = `<span class="dot ${dot}"></span>${escapeHtml(statusText)}`;
+    cvChatDot.className = `dot ${dot}`;
+    cvChatStatus.textContent = statusText;
 
-    // LIVE button: off → armed (agent working, invite) → on.
-    expLiveBtn.classList.toggle("on", liveOn);
     expLiveBtn.classList.toggle("armed", !liveOn && working);
-    expLiveBtn.querySelector(".lbl").textContent = liveOn ? "End live" : "Go live";
-    const n = liveClipCounts[agent.sessionId] || 0;
-    expLiveBannerText.textContent = `LIVE — intermediates use credits${n ? ` · ${n} clip${n === 1 ? "" : "s"} this turn` : ""}`;
+    expLiveBtn.querySelector(".lbl").textContent = "Go live";
 
-    // Thread (dirty-checked so the 80ms tick never rebuilds mid-karaoke).
-    const activeFile =
-      ps.kind === "phone-replay" && ps.entry?.sessionId === agent.sessionId && !isPhoneIdle()
-        ? ps.entry.file
-        : null;
-    const items = buildThreadItems(agent);
-    const hasActiveBubble = activeFile && items.some((i) => i.entry?.file === activeFile);
-    let html = items.map((i) => threadBubbleHtml(i, activeFile)).join("");
-    // A clip still streaming (not yet in the catalog) gets a synthetic bubble.
-    if (activeFile && !hasActiveBubble) {
-      const e = ps.entry;
-      const dim = snapshot.nowPlaying?.kind === "live" ? " cv-dim" : "";
-      html += `<div class="cv-bubble cv-agent${dim}"><span class="cv-karaoke" id="cv-active-karaoke">${escapeHtml(e.spokenText || e.textPreview || "")}</span><div class="cv-meta"><span class="cv-play playing">${iconHtml("pause", "sm")}</span><span>speaking now</span></div></div>`;
+    const n = liveClipCounts[agent.sessionId] || 0;
+    cvCallCredits.textContent = `live · ${n} clip${n === 1 ? "" : "s"}`;
+    $("cv-call-chip-name").textContent = name;
+    $("cv-pin-name").textContent = name;
+    const chipAv = $("cv-call-chip-av");
+    chipAv.onerror = () => { chipAv.onerror = null; chipAv.src = avatarSrc("default", frame); };
+    setImg(chipAv, avSrc);
+    cvPresence.onerror = () => { cvPresence.onerror = null; cvPresence.src = avatarSrc("default", frame); };
+    setImg(cvPresence, avSrc);
+
+    const elapsed = fmtLiveElapsed();
+    cvCallTimer.textContent = elapsed;
+    cvPinTimer.textContent = elapsed;
+
+    ensureThread(agent.sessionId);
+    renderComposer(agent);
+    renderPlaybackStrip(agent);
+    renderCallCard(agent, liveOn);
+
+    // Thread from /thread + page-local ack chips. No working row when live ON
+    // (ownership: call card only).
+    const items = [...(threadCache[agent.sessionId]?.items || [])];
+    const acks = ackEvents[agent.sessionId] || [];
+    for (const a of acks) {
+      items.push({ role: "user", text: "", at: a.at, _ack: true });
     }
-    if (working) {
-      const tools = liveOn && agent.live?.toolCount ? `${agent.live.toolCount} tools so far` : "";
-      const hint = liveOn
-        ? tools
-        : "tap Go live to listen in while they work";
-      html += `<div class="cv-working"><div>${escapeHtml(agent.label || agent.name)} is working<span class="cv-dots"><i>.</i><i>.</i><i>.</i></span></div>${hint ? `<div class="cv-hint">${escapeHtml(hint)}</div>` : ""}</div>`;
+    items.sort((a, b) => {
+      const ta = Date.parse(a.at) || 0;
+      const tb = Date.parse(b.at) || 0;
+      return ta - tb;
+    });
+
+    let html = items.map((i) => threadBubbleHtml(i, agent, liveOn)).join("");
+    if (working && !liveOn) {
+      html += `<div class="cv-working"><div>${escapeHtml(name)} is working<span class="cv-dots"><i>.</i><i>.</i><i>.</i></span></div><div class="cv-hint">tap Go live to listen in while they work</div></div>`;
     }
-    const sig = `${agent.sessionId}|${liveOn}|${working}|${activeFile || ""}|${items.length}|${n}|${html.length}`;
+
+    const sig = `${agent.sessionId}|${liveOn}|${working}|${items.length}|${acks.length}|${n}|${html.length}`;
     if (sig !== lastThreadSig) {
       lastThreadSig = sig;
       const nearBottom =
         expThread.scrollHeight - expThread.scrollTop - expThread.clientHeight < 80;
       expThread.innerHTML = html;
-      if (nearBottom || activeFile) expThread.scrollTop = expThread.scrollHeight;
+      if (nearBottom) expThread.scrollTop = expThread.scrollHeight;
     }
+  }
+
+  function endLive(agent) {
+    if (!agent) return;
+    // Stop phone audio first, then leave live, then slide to chat.
+    clearPhonePlayback({ keepSheet: true });
+    callViewOpen = false;
+    liveStartedAt = null;
+    liveClipCounts[agent.sessionId] = 0;
+    lastCardSig = null;
+    expanded.classList.remove("show-call");
+    postAction({ type: "set_live", sessionId: agent.sessionId, on: false }).then((r) => {
+      if (!r) toast("Couldn't end live");
+    });
+    toast("Live ended");
+    renderPlayer();
+  }
+
+  function goLive(agent) {
+    if (!agent) return;
+    primeAudio();
+    try { ackAudio.src = SILENT_WAV; ackAudio.play().catch(() => {}); } catch { /* noop */ }
+    liveClipCounts[agent.sessionId] = 0;
+    liveStartedAt = Date.now();
+    callViewOpen = true;
+    lastCardSig = null;
+    postAction({ type: "set_live", sessionId: agent.sessionId, on: true }).then((r) => {
+      if (!r) {
+        toast("Couldn't toggle live");
+        callViewOpen = false;
+        liveStartedAt = null;
+      }
+      renderPlayer();
+    });
+    toast("Going live — intermediates will be spoken");
+    renderPlayer();
   }
 
   function handlePhoneAckFrame(ack) {
@@ -2139,19 +2645,26 @@
 
   function updateExpandedKaraoke() {
     if (!expanded.classList.contains("open")) return;
-    // Conversation view: karaoke lives inside the active thread bubble.
+    // Conversation view: karaoke lives in the playback strip + call card.
     if (expanded.classList.contains("convo")) {
-      const el = document.getElementById("cv-active-karaoke");
-      const psc = computePlayerState();
-      if (el && psc.kind === "phone-replay") {
-        const e = psc.entry;
-        const elapsed = ((liveMode ? liveBaseSec : 0) + (audio.currentTime || 0)) * 1000;
-        el.innerHTML = karaokeFromAlignment(
-          e.spokenText || e.textPreview || "",
-          e.alignment,
-          elapsed
-        );
+      updateStripKaraoke();
+      const callEl = document.getElementById("cv-call-karaoke");
+      if (callEl) {
+        const psc = computePlayerState();
+        if (psc.kind === "phone-replay") {
+          const e = psc.entry;
+          const elapsed = ((liveMode ? liveBaseSec : 0) + (audio.currentTime || 0)) * 1000;
+          callEl.innerHTML = karaokeFromAlignment(
+            e.spokenText || e.textPreview || "",
+            e.alignment,
+            elapsed
+          );
+        }
       }
+      // Keep live timers ticking.
+      const elapsed = fmtLiveElapsed();
+      if (cvCallTimer) cvCallTimer.textContent = elapsed;
+      if (cvPinTimer) cvPinTimer.textContent = elapsed;
       return;
     }
     const ps = computePlayerState();
@@ -2181,12 +2694,26 @@
     if (!playerSubject() && !convoAgent()) return;
     expanded.classList.add("open");
     expanded.setAttribute("aria-hidden", "false");
+    const agent = convoAgent();
+    if (agent) {
+      fetchThread(agent.sessionId);
+      if (agent.live?.on) {
+        if (!liveStartedAt) liveStartedAt = Date.now();
+        // Fresh open onto a live session → call surface.
+        if (convoSessionId) callViewOpen = true;
+      } else {
+        callViewOpen = false;
+      }
+    }
     renderExpandedChrome();
   }
   function closeExpanded() {
     convoOverride = null;
     lastThreadSig = null;
-    expanded.classList.remove("open", "convo", "live-on");
+    lastCardSig = null;
+    lastComposerSession = null;
+    callViewOpen = false;
+    expanded.classList.remove("open", "convo", "live-on", "show-call");
     expanded.setAttribute("aria-hidden", "true");
   }
 
@@ -2609,7 +3136,9 @@
     }
   }
 
-  function clearPhonePlayback() {
+  // keepSheet: End-live stops audio but must land back on the chat surface,
+  // not dump the owner to the room list.
+  function clearPhonePlayback(opts = {}) {
     audio.pause();
     audio.removeAttribute("src");
     audio.load();
@@ -2623,7 +3152,7 @@
     liveNp = null;
     liveRetries = 0;
     stopCatchUp();
-    closeExpanded();
+    if (!opts.keepSheet) closeExpanded();
     renderPlayer();
     renderMessages();
     updateBars();
@@ -2939,12 +3468,13 @@
     const status = r ? r.status || "ok" : "failed";
     if (status === "ok") {
       toast(`Reply sent to ${name}`);
-      recordSentReply(sessionId, text);
       liveClipCounts[sessionId] = 0;
       lastThreadSig = null;
       delete replyDrafts[sessionId];
       openReplySession = null;
       textarea.value = "";
+      autoGrowComposer(textarea);
+      fetchThread(sessionId);
       renderMembers();
       renderExpandedChrome();
     } else if (status === "not_in_team") {
@@ -3242,6 +3772,17 @@
       updateExpandedKaraoke();
       updatePlayerProgress();
       checkListenedProgress();
+    } else if (expanded.classList.contains("convo") && expanded.classList.contains("live-on")) {
+      // Keep call/pin timers + strip visibility fresh while idle/working in live.
+      const elapsed = fmtLiveElapsed();
+      if (cvCallTimer) cvCallTimer.textContent = elapsed;
+      if (cvPinTimer) cvPinTimer.textContent = elapsed;
+      const agent = convoAgent();
+      if (agent) {
+        renderPlaybackStrip(agent);
+        // Re-evaluate card precedence (speaking ↔ working ↔ idle) without full thread rebuild.
+        renderCallCard(agent, true);
+      }
     }
   }
 
@@ -3455,21 +3996,46 @@
     }
   });
 
-  // Expanded reply box (static wrapper).
-  // Conversation view: LIVE toggle + per-bubble play chips.
+  // Conversation view: LIVE toggle + per-bubble play chips + call dock.
   expLiveBtn.addEventListener("click", () => {
     const agent = convoAgent();
     if (!agent) return;
-    const on = !!agent.live?.on;
-    // Prime BOTH audio elements inside this gesture so live clips and acks
-    // can autoplay later without a second tap.
-    primeAudio();
-    try { ackAudio.src = SILENT_WAV; ackAudio.play().catch(() => {}); } catch { /* noop */ }
-    if (!on) liveClipCounts[agent.sessionId] = 0;
-    postAction({ type: "set_live", sessionId: agent.sessionId, on: !on }).then((r) => {
-      if (!r) toast("Couldn't toggle live");
-    });
-    toast(on ? "Live ended" : "Going live — intermediates will be spoken");
+    if (agent.live?.on) endLive(agent);
+    else goLive(agent);
+  });
+  $("cv-collapse").addEventListener("click", () => closeExpanded());
+  $("cv-end-live").addEventListener("click", () => endLive(convoAgent()));
+  $("cv-pin-end").addEventListener("click", () => endLive(convoAgent()));
+  $("cv-send-text").addEventListener("click", () => {
+    callViewOpen = false;
+    renderPlayer();
+    // Focus composer after slide.
+    setTimeout(() => { try { cvReplyInput.focus(); } catch { /* noop */ } }, 320);
+  });
+  $("cv-back-call").addEventListener("click", () => {
+    callViewOpen = true;
+    renderPlayer();
+  });
+  cvStripPp.addEventListener("click", () => transportPlayPause());
+  $("cv-strip-stop").addEventListener("click", () => {
+    clearPhonePlayback();
+    renderPlayer();
+  });
+  $("cv-reply-send").addEventListener("click", () => {
+    const id = cvReplyInput.getAttribute("data-reply-for") || convoAgent()?.sessionId;
+    if (id) sendReply(id, cvReplyInput);
+  });
+  cvReplyInput.addEventListener("input", () => {
+    const id = cvReplyInput.getAttribute("data-reply-for");
+    if (id) replyDrafts[id] = cvReplyInput.value;
+    autoGrowComposer(cvReplyInput);
+  });
+  cvReplyInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      const id = cvReplyInput.getAttribute("data-reply-for") || convoAgent()?.sessionId;
+      if (id) sendReply(id, cvReplyInput);
+    }
   });
   expThread.addEventListener("click", (ev) => {
     const t = ev.target;
@@ -3930,6 +4496,11 @@
           const np = next.nowPlaying;
           if (np?.kind === "live" && np.sessionId) {
             liveClipCounts[np.sessionId] = (liveClipCounts[np.sessionId] || 0) + 1;
+          }
+          // /thread is source of truth — refetch after each non-live (final) frame.
+          if (np?.sessionId && np.kind !== "live") {
+            const ca = convoAgent();
+            if (ca && ca.sessionId === np.sessionId) fetchThread(np.sessionId);
           }
           if (isNowPlayingActive(np) && np.output === "phone" && np.replayFile) {
             maybePlayGrantToPhone(np);

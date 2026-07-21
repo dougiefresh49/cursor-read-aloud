@@ -38,7 +38,8 @@ interface NowPlaying {
   playbackRate?: number;
   // "ack" = short prompt acknowledgment: mouth flaps in place, but no
   // spotlight / card growth / live controls — acks don't take the stage.
-  kind?: "ack" | "update";
+  kind?: "ack" | "update" | "live";
+  output?: "phone" | "mac";
 }
 
 interface WsConfig {
@@ -162,6 +163,18 @@ let spotlightEnterKey: string | null = null;
 let spotlightEnterUntil = 0;
 
 const summaryKey = (np: NowPlaying) => `${np.sessionId}:${np.startedAt}`;
+const PHONE_FRAME_STALE_MS = 5 * 60_000;
+
+function isPhoneRoutedFrame(np: NowPlaying | null): boolean {
+  return !!np && (np.kind === "live" || np.output === "phone");
+}
+
+function isPhoneFrame(np: NowPlaying | null): boolean {
+  if (!np || np.endedAt || !isPhoneRoutedFrame(np)) return false;
+  const startedAt = typeof np.startedAt === "number" ? np.startedAt : Date.parse(np.startedAt);
+  const age = Date.now() - startedAt;
+  return Number.isFinite(age) && age >= 0 && age <= PHONE_FRAME_STALE_MS;
+}
 let dockHoverSessionId: string | null = null;
 let dockHoverHideTimer: ReturnType<typeof setTimeout> | null = null;
 let swapOpenSessionId: string | null = null;
@@ -467,6 +480,7 @@ async function loadExpressionsManifest() {
 
 function isLipsyncActive(sessionId?: string): boolean {
   if (!connected || !nowPlaying || nowPlaying.endedAt) return false;
+  if (isPhoneRoutedFrame(nowPlaying)) return false;
   if (!agents.some((a) => a.sessionId === nowPlaying!.sessionId)) return false;
   if (sessionId != null && nowPlaying.sessionId !== sessionId) return false;
   return true;
@@ -493,6 +507,10 @@ function syncPendingGrant() {
     clearPendingGrant();
     return;
   }
+  if (isPhoneRoutedFrame(nowPlaying)) {
+    clearPendingGrant();
+    return;
+  }
   if (!nowPlaying || nowPlaying.endedAt || nowPlaying.kind === "ack") return;
   // Same live message as when the user clicked — still waiting for the grant.
   if (summaryKey(nowPlaying) === pendingGrantBaselineKey) return;
@@ -503,7 +521,7 @@ function setPendingGrant(sessionId: string) {
   pendingGrantSessionId = sessionId;
   pendingGrantAt = Date.now();
   pendingGrantBaselineKey =
-    nowPlaying && !nowPlaying.endedAt ? summaryKey(nowPlaying) : null;
+    nowPlaying && !nowPlaying.endedAt && !isPhoneRoutedFrame(nowPlaying) ? summaryKey(nowPlaying) : null;
 }
 
 function actionClusterMode(sessionId: string): ActionClusterMode {
@@ -740,6 +758,9 @@ function renderCard(agent: AgentView): string {
     agent.supersededCount > 0
       ? `<span class="chip superseded" title="Superseded">${agent.supersededCount}</span>`
       : "";
+  const phoneChip = isPhoneFrame(nowPlaying) && nowPlaying?.sessionId === agent.sessionId
+    ? `<span class="chip phone" title="Playing on phone">on phone</span>`
+    : "";
 
   return `
     <div
@@ -759,7 +780,7 @@ function renderCard(agent: AgentView): string {
             <span class="dot"></span>
             <span class="label">${stateLabels[agent.state]}</span>
           </div>
-          <div class="chips">${raisedChip}${queueChip}${supersededChip}</div>
+          <div class="chips">${raisedChip}${queueChip}${supersededChip}${phoneChip}</div>
         </div>
       </div>
       <div class="card-actions actions-${mode === "live" ? 3 : 5}" aria-label="Agent actions">
@@ -951,7 +972,7 @@ function dockSpotlight(): {
   }
 
   const np = nowPlaying;
-  if (!np || np.kind === "ack") return null;
+  if (!np || np.kind === "ack" || isPhoneRoutedFrame(np)) return null;
   const agent = agents.find((a) => a.sessionId === np.sessionId);
   const live = !np.endedAt && !!agent && connected;
   const bubble =
@@ -2672,7 +2693,7 @@ function handleMessage(raw: string) {
         ? msg.triageFocus
         : null;
     nowPlaying = msg.nowPlaying && typeof msg.nowPlaying.text === "string" ? msg.nowPlaying : null;
-    if (nowPlaying && nowPlaying.kind !== "ack") moodSegments(nowPlaying);
+    if (nowPlaying && nowPlaying.kind !== "ack" && !isPhoneRoutedFrame(nowPlaying)) moodSegments(nowPlaying);
     syncPendingGrant();
     if (swapOpenSessionId && !agents.some((a) => a.sessionId === swapOpenSessionId)) {
       swapOpenSessionId = null;

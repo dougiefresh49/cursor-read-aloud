@@ -21,6 +21,7 @@ export interface LiveEntry {
   since: string;
   toolCount: number;
   turnStartedAt: string | null;
+  lastActivity: { label: string; at: string } | null;
 }
 
 type LiveMap = Record<string, LiveEntry>;
@@ -54,6 +55,7 @@ export function setLiveSession(sessionId: string, on: boolean): void {
       since: new Date().toISOString(),
       toolCount: 0,
       turnStartedAt: null,
+      lastActivity: null,
     };
   } else {
     delete map[sessionId];
@@ -65,7 +67,7 @@ export function setLiveSession(sessionId: string, on: boolean): void {
 /** Tailer heartbeat: bump tool count / turn start without toggling. */
 export function updateLiveEntry(
   sessionId: string,
-  patch: Partial<Pick<LiveEntry, "toolCount" | "turnStartedAt">>
+  patch: Partial<Pick<LiveEntry, "toolCount" | "turnStartedAt" | "lastActivity">>
 ): void {
   const map = loadLiveSessions();
   const entry = map[sessionId];

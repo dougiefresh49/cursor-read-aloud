@@ -52,7 +52,12 @@ export interface AgentView {
   /** team_map.json presence only — no tmux probes on snapshot builds. */
   injectable: boolean;
   /** Live mode (intermediate narration) — null when off. */
-  live: { on: boolean; toolCount: number; turnStartedAt: string | null } | null;
+  live: {
+    on: boolean;
+    toolCount: number;
+    turnStartedAt: string | null;
+    lastActivity: { label: string; at: string } | null;
+  } | null;
 }
 
 export interface PanelSnapshot {
@@ -216,6 +221,7 @@ export function buildSnapshot(): AgentView[] {
               on: true,
               toolCount: liveMap[sessionId].toolCount ?? 0,
               turnStartedAt: liveMap[sessionId].turnStartedAt ?? null,
+              lastActivity: liveMap[sessionId].lastActivity ?? null,
             }
           : null,
       });

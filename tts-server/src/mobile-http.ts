@@ -22,6 +22,7 @@ import { buildPanelSnapshot, subscribe } from "./state-watch.js";
 import { dispatchPanelAction, handleReplyAction, onNotice } from "./panel-ws.js";
 import { pickerPayload } from "./session-catalog.js";
 import { log } from "./logger.js";
+import { findTranscript } from "./live-tail.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHARACTERS_PATH = join(__dirname, "characters.json");
@@ -169,6 +170,52 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     "Cache-Control": "no-cache",
   });
   res.end(data);
+}
+
+interface ThreadItem {
+  role: "user" | "agent";
+  text: string;
+  at: string | null;
+  final?: boolean;
+}
+
+export function transcriptThread(sessionId: string): ThreadItem[] | null {
+  const transcript = findTranscript(sessionId);
+  if (!transcript) return null;
+  const items: ThreadItem[] = [];
+  for (const line of readFileSync(transcript, "utf-8").split("\n")) {
+    if (!line.trim()) continue;
+    let entry: any;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (entry?.isSidechain) continue;
+    const content = entry?.message?.content;
+    const blocks = Array.isArray(content) ? content : [];
+    const at = typeof entry?.timestamp === "string" ? entry.timestamp : null;
+    if (entry?.type === "user") {
+      if (entry.toolUseResult !== undefined || blocks.some((b: any) => b?.type === "tool_result")) continue;
+      const text = (typeof content === "string"
+        ? content
+        : blocks.filter((b: any) => b?.type === "text" && typeof b.text === "string")
+          .map((b: any) => b.text).join("\n")).trim();
+      if (!text || text.startsWith("<task-notification")) continue;
+      items.push({ role: "user", text: text.slice(0, 2000), at });
+    } else if (entry?.type === "assistant") {
+      for (const block of blocks) {
+        if (block?.type !== "text" || typeof block.text !== "string" || !block.text.trim()) continue;
+        items.push({ role: "agent", text: block.text.trim().slice(0, 2000), at, final: false });
+      }
+    }
+  }
+  let lastAgent: ThreadItem | null = null;
+  for (const item of items) {
+    if (item.role === "agent") lastAgent = item;
+    else if (lastAgent) {
+      lastAgent.final = true;
+      lastAgent = null;
+    }
+  }
+  if (lastAgent) lastAgent.final = true;
+  return items;
 }
 
 interface ReplayListEntry {
@@ -428,6 +475,23 @@ async function handleRequest(
 
   if (method === "GET" && path === "/snapshot") {
     sendJson(res, 200, buildPanelSnapshot());
+    return;
+  }
+
+  if (method === "GET" && path.startsWith("/thread/")) {
+    const sessionId = path.slice("/thread/".length);
+    if (!/^[0-9a-f-]{8,64}$/i.test(sessionId)) {
+      sendJson(res, 400, { error: "invalid sessionId" });
+      return;
+    }
+    const items = transcriptThread(sessionId);
+    if (!items) {
+      sendJson(res, 404, { error: "transcript not found" });
+      return;
+    }
+    const parsedLimit = Number.parseInt(url.searchParams.get("limit") ?? "40", 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit >= 0 ? parsedLimit : 40;
+    sendJson(res, 200, { sessionId, items: limit === 0 ? [] : items.slice(-limit) });
     return;
   }
 

@@ -584,6 +584,12 @@ button,
   color: #f6cf8b;
 }
 
+.chip.phone {
+  border-color: rgba(73, 217, 154, 0.2);
+  background: rgba(73, 217, 154, 0.12);
+  color: #9aebc6;
+}
+
 .card-actions {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

@@ -11,7 +11,7 @@ import {
   readFileSync,
 } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 import { createHash } from "crypto";
 import { QUEUE_DIR, TTS_DIR, loadMutedSessions, lookupSessionName } from "./config.js";
 import {
@@ -48,12 +48,14 @@ interface Tailer {
   heldText: string | null;
   toolCount: number;
   lastGrowthAt: number;
+  lastActivityLabel: string | null;
+  lastActivityAt: number;
 }
 
 const tailers = new Map<string, Tailer>();
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
-function findTranscript(sessionId: string): string | null {
+export function findTranscript(sessionId: string): string | null {
   try {
     for (const dir of readdirSync(PROJECTS_DIR)) {
       const p = join(PROJECTS_DIR, dir, `${sessionId}.jsonl`);
@@ -120,6 +122,37 @@ interface TranscriptEntry {
   message?: { content?: unknown };
 }
 
+function activityLabel(block: any): string {
+  const input = block?.input && typeof block.input === "object" ? block.input : {};
+  let detail = "";
+  let isCommand = false;
+  if (typeof input.file_path === "string") detail = basename(input.file_path);
+  else if (typeof input.description === "string") detail = input.description;
+  else if (typeof input.command === "string") {
+    detail = input.command.split("=", 1)[0];
+    isCommand = true;
+  } else if (typeof input.prompt === "string") detail = input.prompt;
+  else if (typeof input.query === "string") detail = input.query;
+  detail = detail.trim().replace(/\s+/g, " ").slice(0, 40);
+  const name = typeof block?.name === "string" && block.name.trim()
+    ? block.name.trim()
+    : "Tool";
+  // Keep command redaction explicit: no text after '=' can survive into state.
+  if (isCommand) detail = detail.split("=", 1)[0].trim();
+  return (detail ? `${name}: ${detail}` : name).slice(0, 60);
+}
+
+function recordActivity(t: Tailer, block: any): void {
+  const label = activityLabel(block);
+  const now = Date.now();
+  if (label === t.lastActivityLabel && now - t.lastActivityAt < 2000) return;
+  t.lastActivityLabel = label;
+  t.lastActivityAt = now;
+  updateLiveEntry(t.sessionId, {
+    lastActivity: { label, at: new Date(now).toISOString() },
+  });
+}
+
 function contentBlocks(entry: TranscriptEntry): any[] {
   const c = entry.message?.content;
   return Array.isArray(c) ? c : [];
@@ -155,12 +188,11 @@ function processEntry(
           t.heldText = null;
         }
         toolUses++;
+        t.toolCount++;
+        recordActivity(t, b);
       }
     }
-    if (toolUses) {
-      t.toolCount += toolUses;
-      updateLiveEntry(t.sessionId, { toolCount: t.toolCount });
-    }
+    if (toolUses) updateLiveEntry(t.sessionId, { toolCount: t.toolCount });
     return;
   }
 
@@ -179,7 +211,10 @@ function processEntry(
       updateLiveEntry(t.sessionId, {
         toolCount: 0,
         turnStartedAt: new Date().toISOString(),
+        lastActivity: null,
       });
+      t.lastActivityLabel = null;
+      t.lastActivityAt = 0;
     }
   }
 }
@@ -242,6 +277,8 @@ function startTailer(sessionId: string): void {
     heldText: null,
     toolCount: 0,
     lastGrowthAt: Date.now(),
+    lastActivityLabel: null,
+    lastActivityAt: 0,
   };
   tailers.set(sessionId, t);
   watchFile(path, { interval: POLL_MS }, () => drainTailer(t));
@@ -291,7 +328,14 @@ function reconcile(): void {
     // Stop hook fired (hand raised): the held text is the turn's FINAL
     // message — the ingest path owns it. Drop it here too, not just on the
     // next-prompt boundary, to shrink the double-speak window.
-    if (state === "hand_raised" && t.heldText) t.heldText = null;
+    if (state === "hand_raised") {
+      if (t.heldText) t.heldText = null;
+      if (live[sessionId]?.lastActivity) {
+        updateLiveEntry(sessionId, { lastActivity: null });
+        t.lastActivityLabel = null;
+        t.lastActivityAt = 0;
+      }
+    }
     // Cost safety valve: half an hour of transcript silence → auto-off.
     if (Date.now() - t.lastGrowthAt > SILENCE_AUTO_OFF_MS) {
       log("live", `30 min silence — auto-ending live for ${sessionId.slice(0, 12)}`);
@@ -332,6 +376,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       heldText: null,
       toolCount: 0,
       lastGrowthAt: Date.now(),
+      lastActivityLabel: null,
+      lastActivityAt: 0,
     };
     const collect: Emit = (_sid, text) => {
       decisions.push(`SPEAK (${text.length} chars): ${text.slice(0, 90).replace(/\n/g, " ")}`);
