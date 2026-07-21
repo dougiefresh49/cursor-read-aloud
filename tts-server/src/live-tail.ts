@@ -142,8 +142,7 @@ function activityLabel(block: any): string {
   return (detail ? `${name}: ${detail}` : name).slice(0, 60);
 }
 
-function recordActivity(t: Tailer, block: any): void {
-  const label = activityLabel(block);
+function recordActivity(t: Tailer, label: string): void {
   const now = Date.now();
   if (label === t.lastActivityLabel && now - t.lastActivityAt < 2000) return;
   t.lastActivityLabel = label;
@@ -189,7 +188,16 @@ function processEntry(
         }
         toolUses++;
         t.toolCount++;
-        recordActivity(t, b);
+        recordActivity(t, activityLabel(b));
+      } else if (b?.type === "thinking") {
+        // Tool-less turns (Q&A) spend most of their time here — surface it so
+        // the call card shows liveness instead of bare "working". A thinking
+        // block after a held text also proves that text was intermediate.
+        if (t.heldText) {
+          emit(t.sessionId, t.heldText);
+          t.heldText = null;
+        }
+        recordActivity(t, "thinking…");
       }
     }
     if (toolUses) updateLiveEntry(t.sessionId, { toolCount: t.toolCount });
