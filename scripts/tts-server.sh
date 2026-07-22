@@ -20,49 +20,70 @@ is_running() {
     [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null
 }
 
+# Fail-loud sync (Phase 1): every step either succeeds or aborts the start —
+# the old `|| true` chain could boot a daemon on stale or mixed sources.
 sync_source() {
-    if [ -d "$REPO_SERVER_DIR/src" ]; then
-        cp "$REPO_SERVER_DIR"/src/*.ts "$SERVER_DIR/src/" 2>/dev/null || true
-        cp "$REPO_SERVER_DIR"/src/*.json "$SERVER_DIR/src/" 2>/dev/null || true
-        # Shared protocol package, staged as plain files. In the repo,
-        # tts-server/src/protocol is a symlink into packages/protocol/src;
-        # here it becomes a real directory so the installed daemon never
-        # resolves modules back into the repo workspace (valibot comes from
-        # SERVER_DIR's own node_modules).
-        REPO_PROTOCOL_SRC="$(dirname "$REPO_SERVER_DIR")/packages/protocol/src"
-        if [ -d "$REPO_PROTOCOL_SRC" ]; then
-            # A symlinked target (e.g. copied in by an older setup.sh) would
-            # dangle or write back into the repo — replace it with a real dir.
-            if [ -L "$SERVER_DIR/src/protocol" ]; then
-                rm -f "$SERVER_DIR/src/protocol"
-            fi
-            mkdir -p "$SERVER_DIR/src/protocol"
-            rsync -a --delete --copy-links "$REPO_PROTOCOL_SRC"/ "$SERVER_DIR/src/protocol/" 2>/dev/null || {
-                rm -rf "$SERVER_DIR/src/protocol"
-                mkdir -p "$SERVER_DIR/src/protocol"
-                cp -R "$REPO_PROTOCOL_SRC"/. "$SERVER_DIR/src/protocol/" 2>/dev/null || true
-            }
-        fi
-        # Mobile room page (served by mobile-http.ts)
-        if [ -f "$REPO_SERVER_DIR/mobile.html" ]; then
-            cp "$REPO_SERVER_DIR/mobile.html" "$SERVER_DIR/mobile.html"
-        fi
-        # Avatar frames for LAN mobile clients
-        REPO_AVATARS="$(dirname "$REPO_SERVER_DIR")/panel/public/avatars"
-        if [ -d "$REPO_AVATARS" ]; then
-            mkdir -p "$TTS_DIR/mobile-assets/avatars"
-            rsync -a --delete "$REPO_AVATARS"/ "$TTS_DIR/mobile-assets/avatars/" 2>/dev/null || \
-                cp -R "$REPO_AVATARS"/. "$TTS_DIR/mobile-assets/avatars/" 2>/dev/null || true
-        fi
-        # Sync package.json too; reinstall deps only when it actually changed
-        if [ -f "$REPO_SERVER_DIR/package.json" ] && \
-           ! diff -q "$REPO_SERVER_DIR/package.json" "$SERVER_DIR/package.json" >/dev/null 2>&1; then
-            cp "$REPO_SERVER_DIR/package.json" "$SERVER_DIR/package.json"
-            log "package.json changed — running pnpm install"
-            (cd "$SERVER_DIR" && pnpm install >> "$LOG_FILE" 2>&1) || log "pnpm install failed — check $LOG_FILE"
-        fi
-        log "Synced source from $REPO_SERVER_DIR"
+    if [ ! -d "$REPO_SERVER_DIR/src" ]; then
+        echo "Error: repo source not found at $REPO_SERVER_DIR/src — not syncing"
+        exit 1
     fi
+    if ! command -v rsync >/dev/null 2>&1; then
+        echo "Error: rsync not found (required for source sync)"
+        exit 1
+    fi
+
+    # Full tree sync (src/services/ and any future subdirs included) with
+    # deletion of removed files, so a renamed/deleted module can't linger in
+    # the install and shadow the new code. src/protocol is a repo symlink —
+    # excluded here (exclusion also protects the staged copy from --delete)
+    # and staged as real files below.
+    rsync -a --delete --exclude=/protocol "$REPO_SERVER_DIR/src/" "$SERVER_DIR/src/" \
+        || { echo "Error: source sync failed"; exit 1; }
+
+    # Shared protocol package, staged as plain files: the installed daemon
+    # must never resolve modules back into the repo workspace (valibot comes
+    # from SERVER_DIR's own node_modules).
+    REPO_PROTOCOL_SRC="$(dirname "$REPO_SERVER_DIR")/packages/protocol/src"
+    if [ ! -d "$REPO_PROTOCOL_SRC" ]; then
+        echo "Error: packages/protocol/src missing in repo — not syncing"
+        exit 1
+    fi
+    # A symlinked target (e.g. copied in by an older setup.sh) would dangle
+    # or write back into the repo — replace it with a real dir.
+    if [ -L "$SERVER_DIR/src/protocol" ]; then
+        rm -f "$SERVER_DIR/src/protocol"
+    fi
+    mkdir -p "$SERVER_DIR/src/protocol"
+    rsync -a --delete --copy-links "$REPO_PROTOCOL_SRC"/ "$SERVER_DIR/src/protocol/" \
+        || { echo "Error: protocol staging failed"; exit 1; }
+
+    # Mobile room page (served raw by mobile-http.ts until the Vite build lands)
+    if [ ! -f "$REPO_SERVER_DIR/mobile.html" ]; then
+        echo "Error: mobile.html missing in repo — not syncing"
+        exit 1
+    fi
+    cp "$REPO_SERVER_DIR/mobile.html" "$SERVER_DIR/mobile.html" \
+        || { echo "Error: mobile.html sync failed"; exit 1; }
+
+    # Avatar frames for LAN mobile clients
+    REPO_AVATARS="$(dirname "$REPO_SERVER_DIR")/panel/public/avatars"
+    if [ -d "$REPO_AVATARS" ]; then
+        mkdir -p "$TTS_DIR/mobile-assets/avatars"
+        rsync -a --delete "$REPO_AVATARS"/ "$TTS_DIR/mobile-assets/avatars/" \
+            || { echo "Error: avatar sync failed"; exit 1; }
+    fi
+
+    # Sync package.json too; reinstall deps only when it actually changed.
+    # An install failure is fatal — booting with missing deps is the exact
+    # stale-mix failure this function exists to prevent.
+    if [ -f "$REPO_SERVER_DIR/package.json" ] && \
+       ! diff -q "$REPO_SERVER_DIR/package.json" "$SERVER_DIR/package.json" >/dev/null 2>&1; then
+        cp "$REPO_SERVER_DIR/package.json" "$SERVER_DIR/package.json"
+        log "package.json changed — running pnpm install"
+        (cd "$SERVER_DIR" && pnpm install >> "$LOG_FILE" 2>&1) \
+            || { echo "Error: pnpm install failed — check $LOG_FILE"; exit 1; }
+    fi
+    log "Synced source from $REPO_SERVER_DIR"
 }
 
 start_server() {
@@ -83,6 +104,12 @@ start_server() {
     fi
 
     sync_source
+
+    # server.log is shell-redirected (the daemon can't rotate its own stdout)
+    # — single-slot rotate at 5MB, mirroring the daemon's hook.log rotation.
+    if [ -f "$LOG_FILE" ] && [ "$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)" -gt 5242880 ]; then
+        mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || true
+    fi
 
     TSX_BIN="$SERVER_DIR/node_modules/.bin/tsx"
     if [ ! -x "$TSX_BIN" ]; then

@@ -219,6 +219,28 @@ export function isProcessing(basename: string): boolean {
   }
 }
 
+/**
+ * Atomically remove a stale lock/marker file so exactly ONE contender may
+ * proceed to re-create it. A bare unlink+wx pair races: two processes can
+ * both observe the stale file, both unlink (the second deleting the first's
+ * fresh claim), and both win. rename() is atomic — only one succeeds; the
+ * loser gets ENOENT and must back off.
+ */
+function takeoverStale(path: string): boolean {
+  const quarantine = `${path}.stale.${process.pid}`;
+  try {
+    renameSync(path, quarantine);
+  } catch {
+    return false; // another process won the takeover (or holder came back)
+  }
+  try {
+    unlinkSync(quarantine);
+  } catch {
+    /* best-effort — quarantine files are inert */
+  }
+  return true;
+}
+
 // Atomic claim: exclusive-create the marker so two processes (daemon +
 // manual play_node.sh) can't both pass an isProcessing() check and
 // double-spend Gemini/ElevenLabs on the same queue file.
@@ -230,8 +252,8 @@ export function claimProcessing(basename: string): boolean {
     return true;
   } catch {
     if (isProcessing(basename)) return false; // live holder
+    if (!takeoverStale(marker)) return false; // lost the reclaim race
     try {
-      unlinkSync(marker); // stale marker from a dead process
       writeFileSync(marker, String(process.pid), { flag: "wx" });
       return true;
     } catch {
@@ -247,15 +269,29 @@ export function clearProcessing(basename: string): void {
 }
 
 export function acquireLock(): boolean {
-  if (existsSync(STREAM_LOCK)) {
-    const pid = readFileSync(STREAM_LOCK, "utf-8").trim();
+  // Exclusive-create, like claimProcessing: holders include OTHER processes
+  // (phrases.ts, announce.ts, play_node.sh), so a check-then-write here was
+  // a real interprocess race — two winners talk over each other and the
+  // second releaseLock() deletes the first's lock.
+  try {
+    writeFileSync(STREAM_LOCK, String(process.pid), { flag: "wx" });
+    return true;
+  } catch {
+    // Lock exists — take over only from a dead holder.
     try {
-      process.kill(Number(pid), 0);
-      return false;
-    } catch {}
+      process.kill(Number(readFileSync(STREAM_LOCK, "utf-8").trim()), 0);
+      return false; // live holder
+    } catch {
+      /* holder dead or lock unreadable — reclaim below */
+    }
+    if (!takeoverStale(STREAM_LOCK)) return false; // lost the reclaim race
+    try {
+      writeFileSync(STREAM_LOCK, String(process.pid), { flag: "wx" });
+      return true;
+    } catch {
+      return false; // a third process created a fresh lock first
+    }
   }
-  writeFileSync(STREAM_LOCK, String(process.pid));
-  return true;
 }
 
 // Timeout must exceed the longest possible playback (~4-5 min for a
@@ -277,9 +313,10 @@ export function waitForLock(timeoutMs = 600_000): Promise<boolean> {
           process.kill(pid, 0);
           holderAlive = true;
         } catch {}
-        if (!holderAlive) {
+        if (!holderAlive && acquireLock()) {
+          // acquireLock's wx path does the dead-holder takeover atomically —
+          // a raw overwrite here could clobber a lock someone else just won.
           clearInterval(interval);
-          writeFileSync(STREAM_LOCK, String(process.pid));
           log("audio", "Lock timeout — holder dead, stealing");
           resolve(true);
         }

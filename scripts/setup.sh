@@ -8,9 +8,14 @@ HOOKS_DIR="$HOME/.cursor"
 SWIFTBAR_PLUGINS_DIR="${SWIFTBAR_PLUGINS_DIR:-$HOME/projects/Swiftbar/Plugins}"
 
 AUTOSTART=false
+# ElevenLabs voice-list + SFX refresh hits the network/API and is opt-in
+# (owner decision 2026-07-21, refactor spec #8) — a plain install must never
+# make API calls.
+REFRESH_VOICES=false
 for arg in "$@"; do
     case "$arg" in
         --autostart) AUTOSTART=true ;;
+        --refresh-voices) REFRESH_VOICES=true ;;
     esac
 done
 
@@ -332,28 +337,32 @@ else
     log "Built Room.app not found at $ROOM_SRC (build panel first to install)"
 fi
 
-# ── 9. Fetch ElevenLabs voices ───────────────────────────────────
-log "Fetching ElevenLabs voices..."
-source "$TTS_DIR/scripts/load_env.sh" 2>/dev/null || true
-if [ -n "${ELEVENLABS_API_KEY:-}" ]; then
-    python3 "$TTS_DIR/scripts/fetch_voices.py" --refresh >/dev/null 2>&1 || log "Voice fetch failed (check API key)"
-    VOICE_COUNT=$(python3 -c "import json; print(len(json.load(open('$TTS_DIR/cache/voices.json'))))" 2>/dev/null || echo "0")
-    log "Cached $VOICE_COUNT ElevenLabs voices"
-else
-    log "No ELEVENLABS_API_KEY — skipping voice fetch"
-fi
+# ── 9+10. ElevenLabs voice cache + notification sounds (OPT-IN) ──
+# API-touching refresh is decoupled from install: run
+#   setup.sh --refresh-voices
+# when voices/SFX actually need updating. SFX generation is billable.
+if [ "$REFRESH_VOICES" = true ]; then
+    log "Fetching ElevenLabs voices..."
+    source "$TTS_DIR/scripts/load_env.sh" 2>/dev/null || true
+    if [ -n "${ELEVENLABS_API_KEY:-}" ]; then
+        python3 "$TTS_DIR/scripts/fetch_voices.py" --refresh >/dev/null 2>&1 || log "Voice fetch failed (check API key)"
+        VOICE_COUNT=$(python3 -c "import json; print(len(json.load(open('$TTS_DIR/cache/voices.json'))))" 2>/dev/null || echo "0")
+        log "Cached $VOICE_COUNT ElevenLabs voices"
 
-# ── 10. Pre-generate notification sounds ─────────────────────────
-if [ -n "${ELEVENLABS_API_KEY:-}" ]; then
-    SFX_COUNT=$(find "$TTS_DIR/sounds/default" -name '*.mp3' -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$SFX_COUNT" -lt 5 ]; then
-        log "Generating notification sound effects..."
-        "$TTS_DIR/scripts/generate_sfx.sh" 2>/dev/null || log "SFX generation failed (non-critical)"
         SFX_COUNT=$(find "$TTS_DIR/sounds/default" -name '*.mp3' -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
-        log "Generated $SFX_COUNT notification sounds"
+        if [ "$SFX_COUNT" -lt 5 ]; then
+            log "Generating notification sound effects..."
+            "$TTS_DIR/scripts/generate_sfx.sh" 2>/dev/null || log "SFX generation failed (non-critical)"
+            SFX_COUNT=$(find "$TTS_DIR/sounds/default" -name '*.mp3' -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+            log "Generated $SFX_COUNT notification sounds"
+        else
+            log "$SFX_COUNT notification sounds already cached"
+        fi
     else
-        log "$SFX_COUNT notification sounds already cached"
+        log "No ELEVENLABS_API_KEY — skipping voice/SFX refresh"
     fi
+else
+    log "Skipping ElevenLabs voice/SFX refresh (opt-in: setup.sh --refresh-voices)"
 fi
 
 log ""

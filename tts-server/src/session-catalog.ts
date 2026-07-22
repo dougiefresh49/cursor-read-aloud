@@ -73,7 +73,30 @@ function projectDirCwd(projectFolder: string, jsonlPaths: string[]): string {
   return decodeProjectDir(basename(projectFolder));
 }
 
-function scanSessions(): ResumableSession[] {
+/**
+ * Short TTL memo for the catalog's directory walks. scanSessions/knownDirs
+ * traverse every ~/.claude/projects folder; they used to run per picker
+ * request AND per spawn/resume validation. 5s keeps the picker feeling live
+ * while collapsing bursts (open picker → both tabs → validate → spawn).
+ */
+function memoTtl<T>(ttlMs: number, fn: () => T): () => T {
+  let value: T | undefined;
+  let at = 0;
+  return () => {
+    const now = Date.now();
+    if (value === undefined || now - at > ttlMs) {
+      value = fn();
+      at = now;
+    }
+    return value;
+  };
+}
+
+const CATALOG_TTL_MS = 5000;
+
+const scanSessions = memoTtl(CATALOG_TTL_MS, scanSessionsUncached);
+
+function scanSessionsUncached(): ResumableSession[] {
   if (!existsSync(PROJECTS_DIR)) return [];
 
   const sessions: ResumableSession[] = [];
@@ -126,7 +149,14 @@ export function listResumable(): ResumableSession[] {
     .slice(0, MAX_RESUMABLE);
 }
 
+const knownDirsMemo = memoTtl(CATALOG_TTL_MS, knownDirsUncached);
+
+/** Copy, not the cached array — a mutating caller must not poison the TTL. */
 export function knownDirs(): string[] {
+  return knownDirsMemo().slice();
+}
+
+function knownDirsUncached(): string[] {
   if (!existsSync(PROJECTS_DIR)) return [];
 
   const seen = new Set<string>();

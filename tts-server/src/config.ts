@@ -40,6 +40,8 @@ export interface Config {
   playback_mode: "auto" | "announce" | "silent";
   streaming_session_prefix: "auto" | "always" | "never";
   played_retention_count: number;
+  // failed/ has the same unbounded-growth problem; pruned at daemon startup.
+  failed_retention_count: number;
   // Prompt-ack behavior on UserPromptSubmit:
   // "always" = fresh Gemini-generated ack (default), "cached" = free cached
   // phrase only, "off" = silent. Ask-user question readouts are unaffected.
@@ -69,6 +71,7 @@ const DEFAULTS: Config = {
   playback_mode: "auto",
   streaming_session_prefix: "auto",
   played_retention_count: 50,
+  failed_retention_count: 50,
   dynamic_responses: "always",
   arcade_enabled: false,
   panel_port: 4780,

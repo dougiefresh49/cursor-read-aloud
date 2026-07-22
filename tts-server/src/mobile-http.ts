@@ -19,10 +19,10 @@ import { basename, dirname, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 import { loadConfig, TTS_DIR, SESSION_VOICES_PATH, PHRASES_DIR } from "./config.js";
 import { buildPanelSnapshot, subscribe } from "./state-watch.js";
-import { dispatchPanelAction, handleReplyAction, onNotice } from "./panel-ws.js";
+import { dispatchPanelAction, handleReplyAction, onNotice } from "./services/commands.js";
 import { pickerPayload } from "./session-catalog.js";
 import { log } from "./logger.js";
-import { findTranscript } from "./live-tail.js";
+import { transcriptThread } from "./services/transcript.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHARACTERS_PATH = join(__dirname, "characters.json");
@@ -172,51 +172,8 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(data);
 }
 
-interface ThreadItem {
-  role: "user" | "agent";
-  text: string;
-  at: string | null;
-  final?: boolean;
-}
-
-export function transcriptThread(sessionId: string): ThreadItem[] | null {
-  const transcript = findTranscript(sessionId);
-  if (!transcript) return null;
-  const items: ThreadItem[] = [];
-  for (const line of readFileSync(transcript, "utf-8").split("\n")) {
-    if (!line.trim()) continue;
-    let entry: any;
-    try { entry = JSON.parse(line); } catch { continue; }
-    if (entry?.isSidechain) continue;
-    const content = entry?.message?.content;
-    const blocks = Array.isArray(content) ? content : [];
-    const at = typeof entry?.timestamp === "string" ? entry.timestamp : null;
-    if (entry?.type === "user") {
-      if (entry.toolUseResult !== undefined || blocks.some((b: any) => b?.type === "tool_result")) continue;
-      const text = (typeof content === "string"
-        ? content
-        : blocks.filter((b: any) => b?.type === "text" && typeof b.text === "string")
-          .map((b: any) => b.text).join("\n")).trim();
-      if (!text || text.startsWith("<task-notification")) continue;
-      items.push({ role: "user", text: text.slice(0, 2000), at });
-    } else if (entry?.type === "assistant") {
-      for (const block of blocks) {
-        if (block?.type !== "text" || typeof block.text !== "string" || !block.text.trim()) continue;
-        items.push({ role: "agent", text: block.text.trim().slice(0, 2000), at, final: false });
-      }
-    }
-  }
-  let lastAgent: ThreadItem | null = null;
-  for (const item of items) {
-    if (item.role === "agent") lastAgent = item;
-    else if (lastAgent) {
-      lastAgent.final = true;
-      lastAgent = null;
-    }
-  }
-  if (lastAgent) lastAgent.final = true;
-  return items;
-}
+// Transcript parsing lives in the transcript service now (bounded reads,
+// projection-aware) — this file only serves the result.
 
 interface ReplayListEntry {
   file: string;

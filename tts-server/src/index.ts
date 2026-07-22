@@ -46,6 +46,7 @@ import { startPanelWs, stopPanelWs } from "./panel-ws.js";
 import { startMobileHttp, stopMobileHttp } from "./mobile-http.js";
 import { startDnd, stopDnd } from "./dnd.js";
 import { registryPidBySessionId, isPidAlive } from "./session-catalog.js";
+import { rotateLogIfLarge, runStartupRetention } from "./maintenance.js";
 import { log } from "./logger.js";
 
 loadEnv();
@@ -409,13 +410,19 @@ let processing = false;
 async function drainQueue(): Promise<void> {
   if (processing) return;
   processing = true;
-  while (queue.length > 0) {
-    const next = queue.shift()!;
-    if (existsSync(next)) {
-      await processQueueFile(next, true);
+  try {
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      if (existsSync(next)) {
+        await processQueueFile(next, true);
+      }
     }
+  } finally {
+    processing = false;
   }
-  processing = false;
+  // Lost-wakeup guard: an add() that landed between the while-exit and
+  // `processing = false` saw processing===true and returned — recheck.
+  if (queue.length > 0) return drainQueue();
   // Floor is settling and the drain is empty — fire any deferred announce
   // (validates hands against live state; no-op if the lock is still held).
   await maybeFireDeferredAnnounce();
@@ -451,6 +458,12 @@ if (command === "once") {
 
 mkdirSync(QUEUE_DIR, { recursive: true });
 mkdirSync(PLAYED_DIR, { recursive: true });
+
+// Housekeeping before the first log line / any queue work: rotate an
+// oversized hook.log and enforce played/ + failed/ retention (drifted to 9x
+// the cap when only ingest-triggered cleanup ran).
+rotateLogIfLarge();
+runStartupRetention();
 
 // Migrate sessionId-keyed state for any /clear that rotated an id while the
 // daemon was down — MUST run before seedStateOnStartup, which would otherwise
@@ -527,9 +540,38 @@ const watcher = watch(QUEUE_DIR, {
 
 watcher.on("add", (path) => {
   if (!path.endsWith(".json")) return;
+  if (queue.includes(path)) return; // startup-recovery overlap
   log("server", `New queue file: ${basename(path)}`);
   queue.push(path);
   drainQueue();
+});
+
+// Startup queue recovery. ignoreInitial:true + an empty in-memory queue meant
+// anything queued while the daemon was down (or orphaned by a crash) stranded
+// in queue/ forever (7 observed during the refactor audit). Admit leftovers
+// through the SAME path as watcher adds so every guard applies unchanged:
+// claimProcessing (stale markers from dead pids are reclaimed), playback-mode
+// gating (announce mode leaves them queued as raised hands), mute, live-mode
+// gates, and the stream lock.
+//
+// Watermark: this runs on chokidar's `ready` (initial scan complete). Files
+// present at ready-time are ignored by the watcher and picked up here; files
+// created after ready fire `add`; the queue.includes() dedupe above covers
+// any overlap. Nothing is missed, nothing admitted twice.
+watcher.on("ready", () => {
+  try {
+    const stranded = readdirSync(QUEUE_DIR)
+      .filter((f) => f.endsWith(".json"))
+      .sort()
+      .map((f) => join(QUEUE_DIR, f))
+      .filter((p) => !queue.includes(p));
+    if (stranded.length === 0) return;
+    log("server", `Startup recovery: admitting ${stranded.length} leftover queue file(s)`);
+    queue.push(...stranded);
+    drainQueue();
+  } catch (err: any) {
+    log("server", `Startup recovery scan failed: ${err?.message ?? err}`);
+  }
 });
 
 // Watch the Claude Code session registry for in-place sessionId rotations

@@ -87,7 +87,8 @@ for any work in this repo:
 
 ```bash
 ~/.cursor/tts/scripts/tts-server.sh restart   # deploy daemon + mobile changes
-./scripts/setup.sh                            # install scripts/hooks/panel bundle
+./scripts/setup.sh                            # install scripts/hooks/panel bundle (no API calls)
+./scripts/setup.sh --refresh-voices           # + ElevenLabs voice cache/SFX refresh (opt-in, billable)
 pnpm typecheck                                # type check all packages (root workspace)
 pnpm check-fixtures                           # validate protocol fixtures vs schemas
 echo "test" | ~/.cursor/tts/scripts/enqueue_manual.sh "Verify"   # cheap pipeline poke
